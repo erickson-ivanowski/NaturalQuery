@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>NaturalQuery</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Authors>Erickson Ivanowski</Authors>
     <Description>NL2SQL engine for .NET — convert natural language questions to SQL queries using LLMs</Description>
     <PackageTags>nl2sql;natural-language;natural-language-processing;nlp;text-to-sql;sql;ai;llm;generative-ai;bedrock;claude;athena;analytics;reporting;conversational-bi</PackageTags>
