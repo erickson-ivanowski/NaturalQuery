@@ -56,6 +56,16 @@ public static class SqlValidator
             }
         }
 
+        // Multi-statement detection — reject queries with unquoted semicolons
+        var sqlNoStringsForSemicolon = Regex.Replace(sql, "'[^']*'", "''");
+        if (sqlNoStringsForSemicolon.Contains(';'))
+        {
+            // Allow trailing semicolon only
+            var trimmed = sqlNoStringsForSemicolon.TrimEnd();
+            if (trimmed.IndexOf(';') < trimmed.Length - 1)
+                return "Multiple SQL statements are not allowed.";
+        }
+
         // Tenant isolation guard
         if (!string.IsNullOrEmpty(tenantIdColumn) && !string.IsNullOrEmpty(tenantId))
         {

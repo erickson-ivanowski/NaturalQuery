@@ -119,12 +119,16 @@ public class NaturalQueryBuilder
     /// </summary>
     /// <param name="connectionString">PostgreSQL connection string.</param>
     /// <param name="timeoutSeconds">Command timeout in seconds. Default: 30.</param>
-    public NaturalQueryBuilder UsePostgresExecutor(string connectionString, int timeoutSeconds = 30)
+    /// <param name="wrapInTransaction">
+    /// When true, wraps every query in BEGIN + ROLLBACK as an extra safety layer.
+    /// Prevents accidental writes even if SQL validation is bypassed. Default: false.
+    /// </param>
+    public NaturalQueryBuilder UsePostgresExecutor(string connectionString, int timeoutSeconds = 30, bool wrapInTransaction = false)
     {
         _services.AddSingleton<IQueryExecutor>(sp =>
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PostgresQueryExecutor>>();
-            return new PostgresQueryExecutor(connectionString, logger, timeoutSeconds);
+            return new PostgresQueryExecutor(connectionString, logger, timeoutSeconds, wrapInTransaction);
         });
         return this;
     }

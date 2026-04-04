@@ -106,4 +106,32 @@ public class SqlValidatorTests
         var result = SqlValidator.Validate("CREATE TABLE evil (id INT)");
         result.Should().NotBeNull();
     }
+
+    [Fact]
+    public void Multiple_Statements_Should_Be_Rejected()
+    {
+        var result = SqlValidator.Validate("SELECT 1; SELECT 2");
+        result.Should().Contain("Multiple SQL statements");
+    }
+
+    [Fact]
+    public void Trailing_Semicolon_Should_Be_Allowed()
+    {
+        var result = SqlValidator.Validate("SELECT * FROM users;");
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Semicolon_Inside_String_Literal_Should_Be_Allowed()
+    {
+        var result = SqlValidator.Validate("SELECT * FROM users WHERE name = 'foo;bar'");
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Multiple_Statements_With_Injection_Should_Be_Rejected()
+    {
+        var result = SqlValidator.Validate("SELECT * FROM users; DELETE FROM users");
+        result.Should().NotBeNull();
+    }
 }
