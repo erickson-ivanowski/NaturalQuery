@@ -240,9 +240,20 @@ Built-in security — all generated SQL is validated:
 
 - Only `SELECT` and `WITH` (CTE) queries allowed
 - Blocks: `DELETE`, `UPDATE`, `INSERT`, `DROP`, `ALTER`, `CREATE`, `TRUNCATE`, `GRANT`, `REVOKE`
+- Multi-statement detection (rejects queries with multiple statements separated by semicolons)
 - String literals are ignored to prevent false positives
 - Tenant isolation enforced when configured
 - Custom forbidden keywords via `options.ForbiddenSqlKeywords`
+
+### Transaction Wrapping (PostgreSQL)
+
+Extra safety layer for database executors that support writes. Wraps every query in `BEGIN` + `ROLLBACK` so even if SQL validation is somehow bypassed, nothing gets written:
+
+```csharp
+.UsePostgresExecutor("Host=localhost;Database=mydb", wrapInTransaction: true)
+```
+
+Basically free for SELECT queries. Not needed for read-only engines like Athena.
 
 ### Multi-Tenancy
 
