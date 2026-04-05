@@ -1,24 +1,24 @@
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
-using Npgsql;
 using NaturalQuery.Models;
 
 namespace NaturalQuery.Providers;
 
 /// <summary>
-/// Query executor for PostgreSQL databases using Npgsql.
+/// Query executor for Microsoft SQL Server databases using Microsoft.Data.SqlClient.
 /// Supports optional transaction wrapping for extra safety (BEGIN + ROLLBACK).
 /// </summary>
-public class PostgresQueryExecutor : IQueryExecutor
+public class SqlServerQueryExecutor : IQueryExecutor
 {
     private readonly string _connectionString;
     private readonly int _timeoutSeconds;
     private readonly bool _wrapInTransaction;
-    private readonly ILogger<PostgresQueryExecutor> _logger;
+    private readonly ILogger<SqlServerQueryExecutor> _logger;
 
     /// <summary>
-    /// Initializes the PostgreSQL query executor.
+    /// Initializes the SQL Server query executor.
     /// </summary>
-    /// <param name="connectionString">PostgreSQL connection string.</param>
+    /// <param name="connectionString">SQL Server connection string.</param>
     /// <param name="logger">Logger instance.</param>
     /// <param name="timeoutSeconds">Command timeout in seconds. Default: 30.</param>
     /// <param name="wrapInTransaction">
@@ -26,9 +26,9 @@ public class PostgresQueryExecutor : IQueryExecutor
     /// This prevents any accidental writes even if SQL validation is bypassed.
     /// Basically free for SELECT queries. Default: false.
     /// </param>
-    public PostgresQueryExecutor(
+    public SqlServerQueryExecutor(
         string connectionString,
-        ILogger<PostgresQueryExecutor> logger,
+        ILogger<SqlServerQueryExecutor> logger,
         int timeoutSeconds = 30,
         bool wrapInTransaction = false)
     {
@@ -41,20 +41,20 @@ public class PostgresQueryExecutor : IQueryExecutor
     /// <inheritdoc />
     public async Task<List<DataPoint>> ExecuteChartQueryAsync(string sql, CancellationToken ct = default)
     {
-        _logger.LogInformation("[Postgres] Executing chart query: {Sql}", sql[..Math.Min(200, sql.Length)]);
+        _logger.LogInformation("[SqlServer] Executing chart query: {Sql}", sql[..Math.Min(200, sql.Length)]);
 
         var results = new List<DataPoint>();
 
-        await using var conn = new NpgsqlConnection(_connectionString);
+        await using var conn = new SqlConnection(_connectionString);
         await conn.OpenAsync(ct);
 
-        NpgsqlTransaction? tx = null;
+        SqlTransaction? tx = null;
         if (_wrapInTransaction)
-            tx = await conn.BeginTransactionAsync(ct);
+            tx = (SqlTransaction)await conn.BeginTransactionAsync(ct);
 
         try
         {
-            await using var cmd = new NpgsqlCommand(sql, conn, tx) { CommandTimeout = _timeoutSeconds };
+            await using var cmd = new SqlCommand(sql, conn, tx) { CommandTimeout = _timeoutSeconds };
             await using var reader = await cmd.ExecuteReaderAsync(ct);
 
             while (await reader.ReadAsync(ct))
@@ -71,7 +71,7 @@ public class PostgresQueryExecutor : IQueryExecutor
                 }
             }
 
-            _logger.LogInformation("[Postgres] Chart query returned {Count} data points", results.Count);
+            _logger.LogInformation("[SqlServer] Chart query returned {Count} data points", results.Count);
             return results;
         }
         finally
@@ -87,20 +87,20 @@ public class PostgresQueryExecutor : IQueryExecutor
     /// <inheritdoc />
     public async Task<List<Dictionary<string, string>>> ExecuteTableQueryAsync(string sql, CancellationToken ct = default)
     {
-        _logger.LogInformation("[Postgres] Executing table query: {Sql}", sql[..Math.Min(200, sql.Length)]);
+        _logger.LogInformation("[SqlServer] Executing table query: {Sql}", sql[..Math.Min(200, sql.Length)]);
 
         var results = new List<Dictionary<string, string>>();
 
-        await using var conn = new NpgsqlConnection(_connectionString);
+        await using var conn = new SqlConnection(_connectionString);
         await conn.OpenAsync(ct);
 
-        NpgsqlTransaction? tx = null;
+        SqlTransaction? tx = null;
         if (_wrapInTransaction)
-            tx = await conn.BeginTransactionAsync(ct);
+            tx = (SqlTransaction)await conn.BeginTransactionAsync(ct);
 
         try
         {
-            await using var cmd = new NpgsqlCommand(sql, conn, tx) { CommandTimeout = _timeoutSeconds };
+            await using var cmd = new SqlCommand(sql, conn, tx) { CommandTimeout = _timeoutSeconds };
             await using var reader = await cmd.ExecuteReaderAsync(ct);
 
             while (await reader.ReadAsync(ct))
@@ -113,7 +113,7 @@ public class PostgresQueryExecutor : IQueryExecutor
                 results.Add(row);
             }
 
-            _logger.LogInformation("[Postgres] Table query returned {Count} rows", results.Count);
+            _logger.LogInformation("[SqlServer] Table query returned {Count} rows", results.Count);
             return results;
         }
         finally

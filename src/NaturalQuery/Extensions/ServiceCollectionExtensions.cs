@@ -133,6 +133,39 @@ public class NaturalQueryBuilder
         return this;
     }
 
+    /// <summary>
+    /// Use Microsoft SQL Server as the query executor.
+    /// </summary>
+    /// <param name="connectionString">SQL Server connection string.</param>
+    /// <param name="timeoutSeconds">Command timeout in seconds. Default: 30.</param>
+    /// <param name="wrapInTransaction">
+    /// When true, wraps every query in BEGIN + ROLLBACK as an extra safety layer. Default: false.
+    /// </param>
+    public NaturalQueryBuilder UseSqlServerExecutor(string connectionString, int timeoutSeconds = 30, bool wrapInTransaction = false)
+    {
+        _services.AddSingleton<IQueryExecutor>(sp =>
+        {
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SqlServerQueryExecutor>>();
+            return new SqlServerQueryExecutor(connectionString, logger, timeoutSeconds, wrapInTransaction);
+        });
+        return this;
+    }
+
+    /// <summary>
+    /// Use SQLite as the query executor. Lightweight and ideal for testing and embedded apps.
+    /// </summary>
+    /// <param name="connectionString">SQLite connection string (e.g., "DataSource=mydb.db").</param>
+    /// <param name="timeoutSeconds">Command timeout in seconds. Default: 30.</param>
+    public NaturalQueryBuilder UseSqliteExecutor(string connectionString, int timeoutSeconds = 30)
+    {
+        _services.AddSingleton<IQueryExecutor>(sp =>
+        {
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SqliteQueryExecutor>>();
+            return new SqliteQueryExecutor(connectionString, logger, timeoutSeconds);
+        });
+        return this;
+    }
+
     /// <summary>Use a custom query executor implementation.</summary>
     public NaturalQueryBuilder UseQueryExecutor<T>() where T : class, IQueryExecutor
     {
@@ -217,6 +250,34 @@ public class NaturalQueryBuilder
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PostgresSchemaDiscovery>>();
             return new PostgresSchemaDiscovery(connectionString, logger);
+        });
+        return this;
+    }
+
+    /// <summary>
+    /// Use SQL Server schema discovery (reads from INFORMATION_SCHEMA).
+    /// </summary>
+    /// <param name="connectionString">SQL Server connection string.</param>
+    public NaturalQueryBuilder UseSqlServerSchemaDiscovery(string connectionString)
+    {
+        _services.AddSingleton<ISchemaDiscovery>(sp =>
+        {
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SqlServerSchemaDiscovery>>();
+            return new SqlServerSchemaDiscovery(connectionString, logger);
+        });
+        return this;
+    }
+
+    /// <summary>
+    /// Use SQLite schema discovery (reads from PRAGMA table_info).
+    /// </summary>
+    /// <param name="connectionString">SQLite connection string.</param>
+    public NaturalQueryBuilder UseSqliteSchemaDiscovery(string connectionString)
+    {
+        _services.AddSingleton<ISchemaDiscovery>(sp =>
+        {
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SqliteSchemaDiscovery>>();
+            return new SqliteSchemaDiscovery(connectionString, logger);
         });
         return this;
     }
