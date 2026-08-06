@@ -69,14 +69,14 @@
 
 ### Tests for User Story 2 (write FIRST, must FAIL)
 
-- [ ] T012 [P] [US2] Write TenantIdValidatorTests: injection corpus (`abc' OR '1'='1`, comment markers, whitespace, quotes, >128 chars), valid corpus (letters/digits/hyphen/underscore/dot), custom-pattern override, empty string treated as not-provided, in tests/NaturalQuery.Tests/TenantIdValidatorTests.cs
-- [ ] T013 [P] [US2] Write TenantFilterVerifierTests: tenant value only in a literal/comment → rejected; real `tenant_col = 'id'` filter (whitespace/case tolerant, table-alias-qualified) → accepted, in tests/NaturalQuery.Tests/TenantFilterVerifierTests.cs
+- [x] T012 [P] [US2] Write TenantIdValidatorTests: injection corpus (`abc' OR '1'='1`, comment markers, whitespace, quotes, >128 chars), valid corpus (letters/digits/hyphen/underscore/dot), custom-pattern override, empty string treated as not-provided, in tests/NaturalQuery.Tests/TenantIdValidatorTests.cs
+- [x] T013 [P] [US2] Write TenantFilterVerifierTests: tenant value only in a literal/comment → rejected; real `tenant_col = 'id'` filter (whitespace/case tolerant, table-alias-qualified) → accepted, in tests/NaturalQuery.Tests/TenantFilterVerifierTests.cs
 
 ### Implementation for User Story 2
 
-- [ ] T014 [P] [US2] Implement TenantIdValidator applying NaturalQueryOptions.TenantIdPattern in src/NaturalQuery/Validation/TenantIdValidator.cs
-- [ ] T015 [P] [US2] Implement TenantFilterVerifier: structural check on normalized SQL for `<tenantColumn> = '<tenantId>'` (alias-qualified accepted) in src/NaturalQuery/Validation/TenantFilterVerifier.cs
-- [ ] T016 [US2] Wire tenant-ID validation at engine entry (before cache/rate-limit/LLM) and filter verification after generation and on retry path; no-op when tenant column unconfigured (FR-008), in src/NaturalQuery/NaturalQueryEngine.cs (depends on T014, T015)
+- [x] T014 [P] [US2] Implement TenantIdValidator applying NaturalQueryOptions.TenantIdPattern in src/NaturalQuery/Validation/TenantIdValidator.cs
+- [x] T015 [P] [US2] Implement TenantFilterVerifier: structural check on normalized SQL for `<tenantColumn> = '<tenantId>'` (alias-qualified accepted) in src/NaturalQuery/Validation/TenantFilterVerifier.cs
+- [x] T016 [US2] Wire tenant-ID validation at engine entry (before cache/rate-limit/LLM) and filter verification after generation and on retry path; no-op when tenant column unconfigured (FR-008), in src/NaturalQuery/NaturalQueryEngine.cs (depends on T014, T015)
 
 **Checkpoint**: SC-002 green; single-tenant and well-formed multi-tenant behavior unchanged.
 

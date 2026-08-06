@@ -57,8 +57,28 @@ public class NaturalQueryEngine : INaturalQueryEngine
         var stopwatch = Stopwatch.StartNew();
         var correlationId = GenerateCorrelationId();
 
+        // Empty string is treated as "not provided" (consistent with null)
+        if (tenantId is { Length: 0 })
+            tenantId = null;
+
         try
         {
+            // Tenant identifier policy — untrusted input, validated before ANY use (FR-006)
+            var tenantIdError = TenantIdValidator.Validate(tenantId, _options.TenantIdPattern);
+            if (tenantIdError != null)
+            {
+                var error = new NaturalQueryError
+                {
+                    Question = question,
+                    ErrorType = "validation",
+                    Message = tenantIdError,
+                    TenantId = tenantId,
+                    ElapsedMs = stopwatch.ElapsedMilliseconds
+                };
+                await ReportErrorAsync(error, ct);
+                throw new InvalidOperationException($"Invalid tenant identifier: {tenantIdError}");
+            }
+
             // Rate limiting
             if (_rateLimiter != null)
             {
@@ -99,7 +119,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
                 sql = sql.Replace(_options.TenantIdPlaceholder, tenantId);
 
             // Validate SQL
-            var validationError = SqlValidator.Validate(sql, _options.TenantIdColumn, tenantId, _options.ForbiddenSqlKeywords);
+            var validationError = ValidateGeneratedSql(sql, tenantId);
             if (validationError != null)
             {
                 var error = new NaturalQueryError
@@ -154,8 +174,8 @@ public class NaturalQueryEngine : INaturalQueryEngine
                         if (!string.IsNullOrEmpty(_options.TenantIdPlaceholder) && !string.IsNullOrEmpty(tenantId))
                             sql = sql.Replace(_options.TenantIdPlaceholder, tenantId);
 
-                        // Validate the new SQL
-                        var retryValidationError = SqlValidator.Validate(sql, _options.TenantIdColumn, tenantId, _options.ForbiddenSqlKeywords);
+                        // Validate the new SQL — identical safety rules on the repair path (FR-004)
+                        var retryValidationError = ValidateGeneratedSql(sql, tenantId);
                         if (retryValidationError != null)
                         {
                             lastExecutionError = new InvalidOperationException($"Invalid query: {retryValidationError}");
@@ -489,6 +509,26 @@ public class NaturalQueryEngine : INaturalQueryEngine
         {
             _logger.LogWarning(ex, "Error handler failed");
         }
+    }
+
+    /// <summary>
+    /// Applies every SQL safety rule used at any route to execution: hardened keyword
+    /// validation plus structural tenant-filter verification (FR-004, FR-007).
+    /// </summary>
+    private string? ValidateGeneratedSql(string sql, string? tenantId)
+    {
+        var validationError = SqlValidator.Validate(sql, _options.TenantIdColumn, tenantId, _options.ForbiddenSqlKeywords);
+        if (validationError != null)
+            return validationError;
+
+        // Structural tenant-filter verification — no-op when tenant column unconfigured (FR-008)
+        if (!string.IsNullOrEmpty(_options.TenantIdColumn) && !string.IsNullOrEmpty(tenantId) &&
+            !TenantFilterVerifier.HasTenantFilter(sql, _options.TenantIdColumn, tenantId))
+        {
+            return $"Query must apply an equality filter on tenant column '{_options.TenantIdColumn}'.";
+        }
+
+        return null;
     }
 
     private static string GenerateCorrelationId()
