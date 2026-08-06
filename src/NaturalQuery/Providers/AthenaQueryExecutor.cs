@@ -17,13 +17,16 @@ public class AthenaQueryExecutor : IQueryExecutor
     private readonly ILogger<AthenaQueryExecutor> _logger;
     private readonly int _timeoutSeconds;
 
+    private readonly int _maxResultRows;
+
     public AthenaQueryExecutor(
         IAmazonAthena athenaClient,
         string database,
         string workgroup,
         string outputLocation,
         ILogger<AthenaQueryExecutor> logger,
-        int timeoutSeconds = 30)
+        int timeoutSeconds = 30,
+        int maxResultRows = 0)
     {
         _athenaClient = athenaClient;
         _database = database;
@@ -31,6 +34,7 @@ public class AthenaQueryExecutor : IQueryExecutor
         _outputLocation = outputLocation;
         _logger = logger;
         _timeoutSeconds = timeoutSeconds;
+        _maxResultRows = maxResultRows;
     }
 
     public async Task<List<DataPoint>> ExecuteChartQueryAsync(string sql, CancellationToken ct = default)
@@ -47,6 +51,9 @@ public class AthenaQueryExecutor : IQueryExecutor
             {
                 results.Add(new DataPoint(label, value));
             }
+
+            if (_maxResultRows > 0 && results.Count > _maxResultRows)
+                break;
         }
 
         return results;
@@ -70,6 +77,9 @@ public class AthenaQueryExecutor : IQueryExecutor
                 dict[headers[i]] = row.Data[i].VarCharValue ?? "";
             }
             results.Add(dict);
+
+            if (_maxResultRows > 0 && results.Count > _maxResultRows)
+                break;
         }
 
         return results;

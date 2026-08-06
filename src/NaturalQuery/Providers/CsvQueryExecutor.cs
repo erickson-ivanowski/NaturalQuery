@@ -15,6 +15,7 @@ public class CsvQueryExecutor : IQueryExecutor, IDisposable
     private readonly string _csvPath;
     private readonly Stream? _csvStream;
     private readonly string _tableName;
+    private readonly int _maxResultRows;
     private readonly ILogger<CsvQueryExecutor> _logger;
     private SqliteConnection? _connection;
     private readonly object _initLock = new();
@@ -24,22 +25,24 @@ public class CsvQueryExecutor : IQueryExecutor, IDisposable
     /// <summary>
     /// Creates a CSV query executor from a file path.
     /// </summary>
-    public CsvQueryExecutor(string csvPath, ILogger<CsvQueryExecutor> logger, string tableName = "data")
+    public CsvQueryExecutor(string csvPath, ILogger<CsvQueryExecutor> logger, string tableName = "data", int maxResultRows = 0)
     {
         _csvPath = csvPath;
         _tableName = tableName;
         _logger = logger;
+        _maxResultRows = maxResultRows;
     }
 
     /// <summary>
     /// Creates a CSV query executor from a stream.
     /// </summary>
-    public CsvQueryExecutor(Stream csvStream, ILogger<CsvQueryExecutor> logger, string tableName = "data")
+    public CsvQueryExecutor(Stream csvStream, ILogger<CsvQueryExecutor> logger, string tableName = "data", int maxResultRows = 0)
     {
         _csvPath = "";
         _csvStream = csvStream;
         _tableName = tableName;
         _logger = logger;
+        _maxResultRows = maxResultRows;
     }
 
     /// <inheritdoc />
@@ -68,6 +71,9 @@ public class CsvQueryExecutor : IQueryExecutor, IDisposable
             {
                 results.Add(new DataPoint(label, value));
             }
+
+            if (_maxResultRows > 0 && results.Count > _maxResultRows)
+                break;
         }
 
         _logger.LogInformation("[CSV] Chart query returned {Count} data points", results.Count);
@@ -96,6 +102,9 @@ public class CsvQueryExecutor : IQueryExecutor, IDisposable
                 row[reader.GetName(i)] = reader.GetValue(i)?.ToString() ?? "";
             }
             results.Add(row);
+
+            if (_maxResultRows > 0 && results.Count > _maxResultRows)
+                break;
         }
 
         _logger.LogInformation("[CSV] Table query returned {Count} rows", results.Count);

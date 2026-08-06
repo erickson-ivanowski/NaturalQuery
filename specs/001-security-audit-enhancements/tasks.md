@@ -114,14 +114,14 @@
 
 ### Tests for User Story 4 (write FIRST, must FAIL)
 
-- [ ] T025 [P] [US4] Write RateLimiterEvictionTests: 100k distinct tenants stay under fixed memory bound (SC-004), idle entries evicted, active tenant never loses its window mid-minute, sweep amortized, in tests/NaturalQuery.Tests/RateLimiterEvictionTests.cs
-- [ ] T026 [P] [US4] Write ResultCapAndTimeoutTests: result > MaxResultRows truncated with Truncated = true, query's own smaller LIMIT binding → no truncation marker, execution past QueryTimeoutSeconds cancelled with timeout error type, in tests/NaturalQuery.Tests/ResultCapAndTimeoutTests.cs
+- [x] T025 [P] [US4] Write RateLimiterEvictionTests: 100k distinct tenants stay under fixed memory bound (SC-004), idle entries evicted, active tenant never loses its window mid-minute, sweep amortized, in tests/NaturalQuery.Tests/RateLimiterEvictionTests.cs
+- [x] T026 [P] [US4] Write ResultCapAndTimeoutTests: result > MaxResultRows truncated with Truncated = true, query's own smaller LIMIT binding → no truncation marker, execution past QueryTimeoutSeconds cancelled with timeout error type, in tests/NaturalQuery.Tests/ResultCapAndTimeoutTests.cs
 
 ### Implementation for User Story 4
 
-- [ ] T027 [US4] Add idle-entry eviction to InMemoryRateLimiter: on IsAllowedAsync, when entries > soft cap (10,000) evict windows idle ≥ 2 windows, sweep at most once/second, in src/NaturalQuery/RateLimiting/InMemoryRateLimiter.cs
-- [ ] T028 [US4] Enforce MaxResultRows in every executor read loop (Athena, PostgreSQL, SQL Server, SQLite, CSV/SQLite executors) setting Truncated when cap binds, in src/NaturalQuery/Providers/*.cs
-- [ ] T029 [US4] Implement QueryTimeoutSeconds via linked CancellationTokenSource around executor calls in engine; surface as `timeout` error type without changing executor signatures, in src/NaturalQuery/NaturalQueryEngine.cs
+- [x] T027 [US4] Add idle-entry eviction to InMemoryRateLimiter: on IsAllowedAsync, when entries > soft cap (10,000) evict windows idle ≥ 2 windows, sweep at most once/second, in src/NaturalQuery/RateLimiting/InMemoryRateLimiter.cs
+- [x] T028 [US4] Enforce MaxResultRows in every executor read loop (Athena, PostgreSQL, SQL Server, SQLite, CSV/SQLite executors) setting Truncated when cap binds, in src/NaturalQuery/Providers/*.cs
+- [x] T029 [US4] Implement QueryTimeoutSeconds via linked CancellationTokenSource around executor calls in engine; surface as `timeout` error type without changing executor signatures, in src/NaturalQuery/NaturalQueryEngine.cs
 
 **Checkpoint**: SC-004 green; default caps generous — typical workloads unchanged.
 

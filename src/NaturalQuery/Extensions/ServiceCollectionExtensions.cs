@@ -109,7 +109,8 @@ public class NaturalQueryBuilder
         {
             var client = sp.GetRequiredService<IAmazonAthena>();
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<AthenaQueryExecutor>>();
-            return new AthenaQueryExecutor(client, database, workgroup, outputLocation, logger, timeoutSeconds);
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new AthenaQueryExecutor(client, database, workgroup, outputLocation, logger, timeoutSeconds, maxRows);
         });
         return this;
     }
@@ -128,7 +129,8 @@ public class NaturalQueryBuilder
         _services.AddSingleton<IQueryExecutor>(sp =>
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PostgresQueryExecutor>>();
-            return new PostgresQueryExecutor(connectionString, logger, timeoutSeconds, wrapInTransaction);
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new PostgresQueryExecutor(connectionString, logger, timeoutSeconds, wrapInTransaction, maxRows);
         });
         return this;
     }
@@ -146,7 +148,8 @@ public class NaturalQueryBuilder
         _services.AddSingleton<IQueryExecutor>(sp =>
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SqlServerQueryExecutor>>();
-            return new SqlServerQueryExecutor(connectionString, logger, timeoutSeconds, wrapInTransaction);
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new SqlServerQueryExecutor(connectionString, logger, timeoutSeconds, wrapInTransaction, maxRows);
         });
         return this;
     }
@@ -161,7 +164,8 @@ public class NaturalQueryBuilder
         _services.AddSingleton<IQueryExecutor>(sp =>
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SqliteQueryExecutor>>();
-            return new SqliteQueryExecutor(connectionString, logger, timeoutSeconds);
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new SqliteQueryExecutor(connectionString, logger, timeoutSeconds, maxRows);
         });
         return this;
     }
@@ -177,7 +181,8 @@ public class NaturalQueryBuilder
         _services.AddSingleton<IQueryExecutor>(sp =>
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CsvQueryExecutor>>();
-            return new CsvQueryExecutor(filePath, logger, tableName);
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new CsvQueryExecutor(filePath, logger, tableName, maxRows);
         });
         return this;
     }
@@ -193,7 +198,8 @@ public class NaturalQueryBuilder
         _services.AddSingleton<IQueryExecutor>(sp =>
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CsvQueryExecutor>>();
-            return new CsvQueryExecutor(csvStream, logger, tableName);
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new CsvQueryExecutor(csvStream, logger, tableName, maxRows);
         });
         return this;
     }

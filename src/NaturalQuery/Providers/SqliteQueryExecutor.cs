@@ -12,6 +12,7 @@ public class SqliteQueryExecutor : IQueryExecutor
 {
     private readonly string _connectionString;
     private readonly int _timeoutSeconds;
+    private readonly int _maxResultRows;
     private readonly ILogger<SqliteQueryExecutor> _logger;
 
     /// <summary>
@@ -20,14 +21,20 @@ public class SqliteQueryExecutor : IQueryExecutor
     /// <param name="connectionString">SQLite connection string (e.g., "Data Source=mydb.sqlite").</param>
     /// <param name="logger">Logger instance.</param>
     /// <param name="timeoutSeconds">Command timeout in seconds. Default: 30.</param>
+    /// <param name="maxResultRows">
+    /// Result row cap; the read loop stops after cap + 1 rows so the engine can mark
+    /// truncation. 0 disables the cap. Default: 0.
+    /// </param>
     public SqliteQueryExecutor(
         string connectionString,
         ILogger<SqliteQueryExecutor> logger,
-        int timeoutSeconds = 30)
+        int timeoutSeconds = 30,
+        int maxResultRows = 0)
     {
         _connectionString = connectionString;
         _logger = logger;
         _timeoutSeconds = timeoutSeconds;
+        _maxResultRows = maxResultRows;
     }
 
     /// <inheritdoc />
@@ -58,6 +65,9 @@ public class SqliteQueryExecutor : IQueryExecutor
             {
                 results.Add(new DataPoint(label, value));
             }
+
+            if (_maxResultRows > 0 && results.Count > _maxResultRows)
+                break;
         }
 
         _logger.LogInformation("[SQLite] Chart query returned {Count} data points", results.Count);
@@ -88,6 +98,9 @@ public class SqliteQueryExecutor : IQueryExecutor
                 row[reader.GetName(i)] = reader.GetValue(i)?.ToString() ?? "";
             }
             results.Add(row);
+
+            if (_maxResultRows > 0 && results.Count > _maxResultRows)
+                break;
         }
 
         _logger.LogInformation("[SQLite] Table query returned {Count} rows", results.Count);

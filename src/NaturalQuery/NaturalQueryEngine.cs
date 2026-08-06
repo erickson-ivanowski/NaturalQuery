@@ -251,14 +251,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
                     }
 
                     using var execActivity = NaturalQueryDiagnostics.StartQueryExecution(sql);
-                    if (result.ChartType == ChartType.Table)
-                    {
-                        result.TableData = await _queryExecutor.ExecuteTableQueryAsync(sql, ct);
-                    }
-                    else
-                    {
-                        result.ChartData = await _queryExecutor.ExecuteChartQueryAsync(sql, ct);
-                    }
+                    await ExecuteWithGovernanceAsync(result, sql, ct);
 
                     // Execution succeeded, break out of retry loop
                     lastExecutionError = null;
@@ -576,6 +569,55 @@ public class NaturalQueryEngine : INaturalQueryEngine
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error handler failed");
+        }
+    }
+
+    /// <summary>
+    /// Executes the query under resource governance: a linked cancellation token
+    /// enforces QueryTimeoutSeconds (FR-017), and results are truncated at
+    /// MaxResultRows with the Truncated marker set (FR-016). The marker is only set
+    /// when the cap was the binding constraint — a query whose own LIMIT produced
+    /// fewer (or exactly cap) rows is not marked.
+    /// </summary>
+    private async Task ExecuteWithGovernanceAsync(QueryResult result, string sql, CancellationToken ct)
+    {
+        var timeoutSeconds = _options.QueryTimeoutSeconds;
+        using var timeoutCts = timeoutSeconds > 0
+            ? CancellationTokenSource.CreateLinkedTokenSource(ct)
+            : null;
+        timeoutCts?.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+        var execToken = timeoutCts?.Token ?? ct;
+
+        try
+        {
+            if (result.ChartType == ChartType.Table)
+            {
+                result.TableData = await _queryExecutor.ExecuteTableQueryAsync(sql, execToken);
+            }
+            else
+            {
+                result.ChartData = await _queryExecutor.ExecuteChartQueryAsync(sql, execToken);
+            }
+        }
+        catch (OperationCanceledException) when (timeoutCts is { IsCancellationRequested: true } && !ct.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Query execution exceeded the {timeoutSeconds}s timeout.");
+        }
+
+        var cap = _options.MaxResultRows;
+        if (cap > 0)
+        {
+            if (result.TableData is { } table && table.Count > cap)
+            {
+                result.TableData = table.Take(cap).ToList();
+                result.Truncated = true;
+            }
+
+            if (result.ChartData is { } chart && chart.Count > cap)
+            {
+                result.ChartData = chart.Take(cap).ToList();
+                result.Truncated = true;
+            }
         }
     }
 
