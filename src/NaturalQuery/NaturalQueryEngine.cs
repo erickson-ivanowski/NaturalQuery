@@ -4,7 +4,9 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using NaturalQuery.Auditing;
 using NaturalQuery.Caching;
+using NaturalQuery.Masking;
 using NaturalQuery.Diagnostics;
 using NaturalQuery.Models;
 using NaturalQuery.Providers;
@@ -28,6 +30,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
     private readonly IQueryCache? _cache;
     private readonly IRateLimiter? _rateLimiter;
     private readonly IErrorHandler? _errorHandler;
+    private readonly IAuditSink? _auditSink;
     private readonly PromptInjectionScreener _injectionScreener;
 
     /// <summary>
@@ -41,7 +44,8 @@ public class NaturalQueryEngine : INaturalQueryEngine
         ILogger<NaturalQueryEngine> logger,
         IQueryCache? cache = null,
         IRateLimiter? rateLimiter = null,
-        IErrorHandler? errorHandler = null)
+        IErrorHandler? errorHandler = null,
+        IAuditSink? auditSink = null)
     {
         _llmProvider = llmProvider;
         _queryExecutor = queryExecutor;
@@ -50,6 +54,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
         _cache = cache;
         _rateLimiter = rateLimiter;
         _errorHandler = errorHandler;
+        _auditSink = auditSink;
         _injectionScreener = new PromptInjectionScreener(_options.InjectionPatterns);
     }
 
@@ -64,12 +69,20 @@ public class NaturalQueryEngine : INaturalQueryEngine
         if (tenantId is { Length: 0 })
             tenantId = null;
 
+        // Audit tracking — one record per processed question, success or failure (FR-018)
+        var auditOutcome = "llm_error";
+        string? auditSql = null;
+        var auditTokens = 0;
+        var auditTruncated = false;
+        Exception? failure = null;
+
         try
         {
             // Tenant identifier policy — untrusted input, validated before ANY use (FR-006)
             var tenantIdError = TenantIdValidator.Validate(tenantId, _options.TenantIdPattern);
             if (tenantIdError != null)
             {
+                auditOutcome = "validation_rejected";
                 var error = new NaturalQueryError
                 {
                     Question = question,
@@ -91,6 +104,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
                     var turnError = SqlValidator.Validate(turn.Sql);
                     if (turnError != null)
                     {
+                        auditOutcome = "validation_rejected";
                         var error = new NaturalQueryError
                         {
                             Question = question,
@@ -126,6 +140,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
                 {
                     if (_options.InjectionScreening == InjectionScreeningMode.Block)
                     {
+                        auditOutcome = "injection_flagged";
                         var error = new NaturalQueryError
                         {
                             Question = question,
@@ -151,6 +166,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
                 var allowed = await _rateLimiter.IsAllowedAsync(tenantId ?? "global", ct);
                 if (!allowed)
                 {
+                    auditOutcome = "rate_limited";
                     var error = new NaturalQueryError
                     {
                         Question = question,
@@ -173,6 +189,10 @@ public class NaturalQueryEngine : INaturalQueryEngine
                     _logger.LogInformation("NaturalQuery cache hit for question: {Question}", question[..Math.Min(50, question.Length)]);
                     NaturalQueryDiagnostics.RecordCacheHit(activity);
                     cached.InjectionFlagged = injectionFlagged;
+                    auditOutcome = "success";
+                    auditSql = cached.Sql;
+                    auditTokens = cached.TokensUsed;
+                    auditTruncated = cached.Truncated;
                     return cached;
                 }
             }
@@ -185,10 +205,14 @@ public class NaturalQueryEngine : INaturalQueryEngine
             if (!string.IsNullOrEmpty(_options.TenantIdPlaceholder) && !string.IsNullOrEmpty(tenantId))
                 sql = sql.Replace(_options.TenantIdPlaceholder, tenantId);
 
+            auditSql = sql;
+            auditTokens = result.TokensUsed;
+
             // Validate SQL
             var validationError = ValidateGeneratedSql(sql, tenantId);
             if (validationError != null)
             {
+                auditOutcome = "validation_rejected";
                 var error = new NaturalQueryError
                 {
                     Question = question,
@@ -212,6 +236,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
             }
 
             // Execute with optional retry
+            auditOutcome = "execution_error";
             var maxRetries = Math.Clamp(_options.MaxRetries, 0, 3);
             Exception? lastExecutionError = null;
 
@@ -241,6 +266,9 @@ public class NaturalQueryEngine : INaturalQueryEngine
                         if (!string.IsNullOrEmpty(_options.TenantIdPlaceholder) && !string.IsNullOrEmpty(tenantId))
                             sql = sql.Replace(_options.TenantIdPlaceholder, tenantId);
 
+                        auditSql = sql;
+                        auditTokens = result.TokensUsed;
+
                         // Validate the new SQL — identical safety rules on the repair path (FR-004)
                         var retryValidationError = ValidateGeneratedSql(sql, tenantId);
                         if (retryValidationError != null)
@@ -267,10 +295,16 @@ public class NaturalQueryEngine : INaturalQueryEngine
             if (lastExecutionError != null)
                 throw lastExecutionError;
 
+            // Sensitive-column masking before caching/return (FR-019)
+            if (_options.Tables.Count > 0)
+                SensitiveDataMasker.Mask(result, _options.Tables);
+
             stopwatch.Stop();
             result.ElapsedMs = stopwatch.ElapsedMilliseconds;
             result.CorrelationId = correlationId;
             result.InjectionFlagged = injectionFlagged;
+            auditOutcome = "success";
+            auditTruncated = result.Truncated;
 
             NaturalQueryDiagnostics.RecordResult(activity, result.TokensUsed, result.ChartType, result.ElapsedMs);
 
@@ -286,8 +320,9 @@ public class NaturalQueryEngine : INaturalQueryEngine
 
             return result;
         }
-        catch (Exception ex) when (ex is not InvalidOperationException || _errorHandler != null)
+        catch (Exception ex)
         {
+            failure = ex;
             NaturalQueryDiagnostics.RecordError(activity, ex);
 
             if (_errorHandler != null && ex is not InvalidOperationException)
@@ -305,6 +340,46 @@ public class NaturalQueryEngine : INaturalQueryEngine
             }
 
             throw;
+        }
+        finally
+        {
+            if (_auditSink != null)
+            {
+                if (failure is TimeoutException)
+                    auditOutcome = "timeout";
+                else if (auditOutcome == "llm_error" && failure is InvalidOperationException ioe && IsSafetyValidationMessage(ioe.Message))
+                    auditOutcome = "validation_rejected"; // generated SQL rejected during parse-time validation
+
+                await EmitAuditAsync(new AuditRecord
+                {
+                    Question = question,
+                    Sql = auditSql,
+                    TenantId = tenantId,
+                    Outcome = auditOutcome,
+                    DurationMs = stopwatch.ElapsedMilliseconds,
+                    TokensUsed = auditTokens,
+                    TimestampUtc = DateTime.UtcNow,
+                    CorrelationId = correlationId,
+                    Truncated = auditTruncated
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes the audit record; a sink failure never fails the user's request —
+    /// it is logged server-side (FR-018). Uses CancellationToken.None so a
+    /// caller-cancelled request still audits.
+    /// </summary>
+    private async Task EmitAuditAsync(AuditRecord record)
+    {
+        try
+        {
+            await _auditSink!.WriteAsync(record, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "NaturalQuery audit sink failed for correlation {CorrelationId}", record.CorrelationId);
         }
     }
 
@@ -640,6 +715,13 @@ public class NaturalQueryEngine : INaturalQueryEngine
 
         return null;
     }
+
+    /// <summary>Matches the error strings owned by SqlValidator (safety rejections).</summary>
+    private static bool IsSafetyValidationMessage(string message) =>
+        message.Contains("Forbidden SQL keyword", StringComparison.Ordinal) ||
+        message.Contains("Only SELECT queries", StringComparison.Ordinal) ||
+        message.Contains("Multiple SQL statements", StringComparison.Ordinal) ||
+        message.Contains("SQL query cannot be empty", StringComparison.Ordinal);
 
     private static string GenerateCorrelationId()
     {

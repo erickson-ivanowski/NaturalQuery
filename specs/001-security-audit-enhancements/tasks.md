@@ -135,15 +135,15 @@
 
 ### Tests for User Story 5 (write FIRST, must FAIL)
 
-- [ ] T030 [P] [US5] Write AuditSinkTests: exactly one record on success and on each failure class (validation_rejected, rate_limited, timeout, execution_error, llm_error), record fields complete (question, sql, tenant, outcome, duration, tokens, timestamp, correlationId, truncated), throwing sink never fails the request and is logged, no sink = zero-overhead path, in tests/NaturalQuery.Tests/AuditSinkTests.cs
-- [ ] T031 [P] [US5] Write SensitiveDataMaskerTests: sensitive column values → `***` in TableData and ChartData (grouping values included), unmasked columns untouched, CSV/JSON exports inherit masking, case-insensitive column matching, in tests/NaturalQuery.Tests/SensitiveDataMaskerTests.cs
+- [x] T030 [P] [US5] Write AuditSinkTests: exactly one record on success and on each failure class (validation_rejected, rate_limited, timeout, execution_error, llm_error), record fields complete (question, sql, tenant, outcome, duration, tokens, timestamp, correlationId, truncated), throwing sink never fails the request and is logged, no sink = zero-overhead path, in tests/NaturalQuery.Tests/AuditSinkTests.cs
+- [x] T031 [P] [US5] Write SensitiveDataMaskerTests: sensitive column values → `***` in TableData and ChartData (grouping values included), unmasked columns untouched, CSV/JSON exports inherit masking, case-insensitive column matching, in tests/NaturalQuery.Tests/SensitiveDataMaskerTests.cs
 
 ### Implementation for User Story 5
 
-- [ ] T032 [P] [US5] Create IAuditSink (`WriteAsync(AuditRecord, CancellationToken)`) in src/NaturalQuery/Auditing/IAuditSink.cs and AuditRecord (fields per data-model.md) in src/NaturalQuery/Auditing/AuditRecord.cs
-- [ ] T033 [P] [US5] Implement SensitiveDataMasker replacing sensitive-column values with `***` across TableData/ChartData in src/NaturalQuery/Masking/SensitiveDataMasker.cs
-- [ ] T034 [US5] Add UseAuditSink registration overloads (instance, factory, delegate) in src/NaturalQuery/Extensions/ServiceCollectionExtensions.cs (depends on T032)
-- [ ] T035 [US5] Engine: emit exactly one AuditRecord per AskAsync in finally-style path wrapped in try/catch + log-on-failure; apply SensitiveDataMasker post-execution before caching/return, in src/NaturalQuery/NaturalQueryEngine.cs (depends on T032, T033)
+- [x] T032 [P] [US5] Create IAuditSink (`WriteAsync(AuditRecord, CancellationToken)`) in src/NaturalQuery/Auditing/IAuditSink.cs and AuditRecord (fields per data-model.md) in src/NaturalQuery/Auditing/AuditRecord.cs
+- [x] T033 [P] [US5] Implement SensitiveDataMasker replacing sensitive-column values with `***` across TableData/ChartData in src/NaturalQuery/Masking/SensitiveDataMasker.cs
+- [x] T034 [US5] Add UseAuditSink registration overloads (instance, factory, delegate) in src/NaturalQuery/Extensions/ServiceCollectionExtensions.cs (depends on T032)
+- [x] T035 [US5] Engine: emit exactly one AuditRecord per AskAsync in finally-style path wrapped in try/catch + log-on-failure; apply SensitiveDataMasker post-execution before caching/return, in src/NaturalQuery/NaturalQueryEngine.cs (depends on T032, T033)
 
 **Checkpoint**: SC-006 green; audit/masking fully opt-in.
 

@@ -2,6 +2,7 @@ using Amazon.Athena;
 using Amazon.BedrockRuntime;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using NaturalQuery.Auditing;
 using NaturalQuery.Caching;
 using NaturalQuery.Diagnostics;
 using NaturalQuery.Discovery;
@@ -248,6 +249,39 @@ public class NaturalQueryBuilder
         return this;
     }
 
+    // ── Auditing ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Register an audit sink instance. The engine writes exactly one audit record
+    /// per processed question (success or failure); sink failures never fail requests.
+    /// </summary>
+    public NaturalQueryBuilder UseAuditSink(IAuditSink sink)
+    {
+        _services.AddSingleton(sink);
+        return this;
+    }
+
+    /// <summary>Register an audit sink implementation type.</summary>
+    public NaturalQueryBuilder UseAuditSink<T>() where T : class, IAuditSink
+    {
+        _services.AddSingleton<IAuditSink, T>();
+        return this;
+    }
+
+    /// <summary>Register an audit sink from a service-provider factory.</summary>
+    public NaturalQueryBuilder UseAuditSink(Func<IServiceProvider, IAuditSink> factory)
+    {
+        _services.AddSingleton(factory);
+        return this;
+    }
+
+    /// <summary>Register an inline audit sink using a callback.</summary>
+    public NaturalQueryBuilder UseAuditSink(Func<AuditRecord, CancellationToken, Task> writer)
+    {
+        _services.AddSingleton<IAuditSink>(new DelegateAuditSink(writer));
+        return this;
+    }
+
     // ── Error Handling ──────────────────────────────────────────
 
     /// <summary>
@@ -330,6 +364,17 @@ public class NaturalQueryBuilder
     }
 
     // ── Internal helpers ────────────────────────────────────────
+
+    private class DelegateAuditSink : IAuditSink
+    {
+        private readonly Func<AuditRecord, CancellationToken, Task> _writer;
+
+        public DelegateAuditSink(Func<AuditRecord, CancellationToken, Task> writer) =>
+            _writer = writer;
+
+        public Task WriteAsync(AuditRecord record, CancellationToken ct = default) =>
+            _writer(record, ct);
+    }
 
     private class DelegateErrorHandler : IErrorHandler
     {
