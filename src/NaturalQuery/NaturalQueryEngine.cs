@@ -55,6 +55,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
     {
         using var activity = NaturalQueryDiagnostics.StartAsk(question, tenantId);
         var stopwatch = Stopwatch.StartNew();
+        var correlationId = GenerateCorrelationId();
 
         try
         {
@@ -188,6 +189,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
 
             stopwatch.Stop();
             result.ElapsedMs = stopwatch.ElapsedMilliseconds;
+            result.CorrelationId = correlationId;
 
             NaturalQueryDiagnostics.RecordResult(activity, result.TokensUsed, result.ChartType, result.ElapsedMs);
 
@@ -496,6 +498,14 @@ public class NaturalQueryEngine : INaturalQueryEngine
         {
             _logger.LogWarning(ex, "Error handler failed");
         }
+    }
+
+    private static string GenerateCorrelationId()
+    {
+        var traceId = Activity.Current?.TraceId.ToString();
+        return string.IsNullOrEmpty(traceId) || traceId == "00000000000000000000000000000000"
+            ? Guid.NewGuid().ToString("N")
+            : traceId;
     }
 
     private static string ClassifyError(Exception ex) => ex switch

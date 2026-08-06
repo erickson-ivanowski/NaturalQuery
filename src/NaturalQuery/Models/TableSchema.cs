@@ -41,6 +41,9 @@ public class ColumnDef
     /// <summary>Optional description to help the LLM understand the column.</summary>
     public string? Description { get; set; }
 
+    /// <summary>When true, values of this column are fully redacted (***) in every output form.</summary>
+    public bool Sensitive { get; init; }
+
     public ColumnDef() { }
 
     public ColumnDef(string name, string type, string? description = null)
@@ -48,5 +51,11 @@ public class ColumnDef
         Name = name;
         Type = type;
         Description = description;
+    }
+
+    public ColumnDef(string name, string type, string? description, bool sensitive)
+        : this(name, type, description)
+    {
+        Sensitive = sensitive;
     }
 }

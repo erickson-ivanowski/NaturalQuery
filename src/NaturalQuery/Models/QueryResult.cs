@@ -31,4 +31,13 @@ public class QueryResult
 
     /// <summary>Execution time in milliseconds.</summary>
     public long ElapsedMs { get; set; }
+
+    /// <summary>True when the result was truncated at the configured maximum row count.</summary>
+    public bool Truncated { get; set; }
+
+    /// <summary>Correlation identifier linking this response to server-side logs and audit records.</summary>
+    public string? CorrelationId { get; set; }
+
+    /// <summary>True when prompt-injection screening flagged the question (warn mode).</summary>
+    public bool InjectionFlagged { get; set; }
 }
