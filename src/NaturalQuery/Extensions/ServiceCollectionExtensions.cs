@@ -46,6 +46,12 @@ public class NaturalQueryBuilder
         _services = services;
     }
 
+    /// <summary>
+    /// The underlying service collection, so companion packages (e.g. NaturalQuery.Redis)
+    /// can register their own implementations of the extension points.
+    /// </summary>
+    public IServiceCollection Services => _services;
+
     // ── LLM Providers ───────────────────────────────────────────
 
     /// <summary>
@@ -80,6 +86,43 @@ public class NaturalQueryBuilder
             if (!string.IsNullOrEmpty(baseUrl))
                 httpClient.BaseAddress = new Uri(baseUrl);
 
+            var options = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value;
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<OpenAiProvider>>();
+            return new OpenAiProvider(httpClient, apiKey, model, options.MaxTokens, options.Temperature, logger);
+        });
+        return this;
+    }
+
+    /// <summary>
+    /// Use the direct Anthropic Messages API (Claude) as the LLM provider.
+    /// No SDK dependency — uses raw HttpClient.
+    /// </summary>
+    /// <param name="apiKey">Anthropic API key.</param>
+    /// <param name="model">Model ID. Default: "claude-sonnet-5".</param>
+    public NaturalQueryBuilder UseAnthropicProvider(string apiKey, string model = "claude-sonnet-5")
+    {
+        _services.AddSingleton<ILlmProvider>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value;
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<AnthropicProvider>>();
+            return new AnthropicProvider(new HttpClient(), apiKey, model, options.MaxTokens, logger);
+        });
+        return this;
+    }
+
+    /// <summary>
+    /// Use OpenRouter as the LLM provider — a thin convenience over the OpenAI-compatible
+    /// provider with OpenRouter's base URL and recommended attribution headers.
+    /// </summary>
+    /// <param name="apiKey">OpenRouter API key.</param>
+    /// <param name="model">Model name (e.g., "anthropic/claude-sonnet-4.5").</param>
+    /// <param name="referer">Optional HTTP-Referer for OpenRouter app attribution.</param>
+    /// <param name="title">Optional X-Title for OpenRouter app attribution.</param>
+    public NaturalQueryBuilder UseOpenRouterProvider(string apiKey, string model, string? referer = null, string? title = null)
+    {
+        _services.AddSingleton<ILlmProvider>(sp =>
+        {
+            var httpClient = OpenRouterDefaults.CreateHttpClient(referer, title);
             var options = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value;
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<OpenAiProvider>>();
             return new OpenAiProvider(httpClient, apiKey, model, options.MaxTokens, options.Temperature, logger);
@@ -201,6 +244,25 @@ public class NaturalQueryBuilder
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CsvQueryExecutor>>();
             var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
             return new CsvQueryExecutor(csvStream, logger, tableName, maxRows);
+        });
+        return this;
+    }
+
+    /// <summary>
+    /// Use MySQL / MariaDB as the query executor.
+    /// </summary>
+    /// <param name="connectionString">MySQL connection string.</param>
+    /// <param name="timeoutSeconds">Command timeout in seconds. Default: 30.</param>
+    /// <param name="wrapInTransaction">
+    /// When true, wraps every query in a transaction rolled back at the end. Default: false.
+    /// </param>
+    public NaturalQueryBuilder UseMySqlExecutor(string connectionString, int timeoutSeconds = 30, bool wrapInTransaction = false)
+    {
+        _services.AddSingleton<IQueryExecutor>(sp =>
+        {
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MySqlQueryExecutor>>();
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new MySqlQueryExecutor(connectionString, logger, timeoutSeconds, wrapInTransaction, maxRows);
         });
         return this;
     }
@@ -350,6 +412,20 @@ public class NaturalQueryBuilder
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SqliteSchemaDiscovery>>();
             return new SqliteSchemaDiscovery(connectionString, logger);
+        });
+        return this;
+    }
+
+    /// <summary>
+    /// Use MySQL / MariaDB schema discovery (reads from information_schema).
+    /// </summary>
+    /// <param name="connectionString">MySQL connection string.</param>
+    public NaturalQueryBuilder UseMySqlSchemaDiscovery(string connectionString)
+    {
+        _services.AddSingleton<ISchemaDiscovery>(sp =>
+        {
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MySqlSchemaDiscovery>>();
+            return new MySqlSchemaDiscovery(connectionString, logger);
         });
         return this;
     }

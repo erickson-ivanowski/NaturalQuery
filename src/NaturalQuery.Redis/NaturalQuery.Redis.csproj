@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>NaturalQuery.Redis</PackageId>
+    <Version>2.1.0</Version>
+    <Authors>Erickson Ivanowski</Authors>
+    <Description>Redis-backed cache and rate limiter for NaturalQuery — shared across application instances.</Description>
+    <PackageTags>nl2sql;naturalquery;redis;cache;rate-limiting</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/erickson-ivanowski/NaturalQuery</RepositoryUrl>
+    <InternalsVisibleTo>NaturalQuery.Redis.Tests</InternalsVisibleTo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="StackExchange.Redis" Version="2.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NaturalQuery\NaturalQuery.csproj" />
+  </ItemGroup>
+
+</Project>

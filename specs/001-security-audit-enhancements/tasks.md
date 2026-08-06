@@ -157,22 +157,22 @@
 
 ### Tests for User Story 6 (write FIRST, must FAIL)
 
-- [ ] T036 [P] [US6] Write MySqlQueryExecutorTests (SQL-shape tests, no live server; transaction wrapping, row cap, timeout propagation) in tests/NaturalQuery.Tests/MySqlQueryExecutorTests.cs
-- [ ] T037 [P] [US6] Write AnthropicProviderTests (mocked HttpClient, same pattern as OpenAiProviderTests: response contract, input+output token mapping, 429 → rate-limit classification) in tests/NaturalQuery.Tests/AnthropicProviderTests.cs
-- [ ] T038 [P] [US6] Write OpenRouterConfigurationTests (BaseAddress `https://openrouter.ai/api/`, path unchanged, HTTP-Referer/X-Title headers when provided) in tests/NaturalQuery.Tests/OpenRouterConfigurationTests.cs
+- [x] T036 [P] [US6] Write MySqlQueryExecutorTests (SQL-shape tests, no live server; transaction wrapping, row cap, timeout propagation) in tests/NaturalQuery.Tests/MySqlQueryExecutorTests.cs
+- [x] T037 [P] [US6] Write AnthropicProviderTests (mocked HttpClient, same pattern as OpenAiProviderTests: response contract, input+output token mapping, 429 → rate-limit classification) in tests/NaturalQuery.Tests/AnthropicProviderTests.cs
+- [x] T038 [P] [US6] Write OpenRouterConfigurationTests (BaseAddress `https://openrouter.ai/api/`, path unchanged, HTTP-Referer/X-Title headers when provided) in tests/NaturalQuery.Tests/OpenRouterConfigurationTests.cs
 
 ### Implementation for User Story 6
 
-- [ ] T039 [US6] Add MySqlConnector package reference to src/NaturalQuery/NaturalQuery.csproj (only new core dependency)
-- [ ] T040 [P] [US6] Implement MySqlQueryExecutor (wrapInTransaction support, read-only advisory, MaxResultRows cap, timeout token) in src/NaturalQuery/Providers/MySqlQueryExecutor.cs (depends on T039)
-- [ ] T041 [P] [US6] Implement MySqlSchemaDiscovery via information_schema in src/NaturalQuery/Discovery/MySqlSchemaDiscovery.cs (depends on T039)
-- [ ] T042 [P] [US6] Implement AnthropicProvider via raw HttpClient against `https://api.anthropic.com/v1/messages` (x-api-key + anthropic-version headers, token mapping, error classification) in src/NaturalQuery/Providers/AnthropicProvider.cs
-- [ ] T043 [US6] Add UseAnthropicProvider, UseOpenRouterProvider (OpenAiProvider with custom BaseAddress + attribution headers), UseMySqlExecutor, UseMySqlSchemaDiscovery registrations in src/NaturalQuery/Extensions/ServiceCollectionExtensions.cs (depends on T040, T041, T042)
-- [ ] T044 [US6] Create src/NaturalQuery.Redis/NaturalQuery.Redis.csproj (net8.0, StackExchange.Redis, version 2.1.0, version-locked to core) and add to solution
-- [ ] T045 [US6] Create tests/NaturalQuery.Redis.Tests project (xUnit + FluentAssertions + Moq) and write tests with mocked IConnectionMultiplexer: cache fail-open → miss, limiter fail-closed → deny + logged, INCR+EXPIRE window semantics, combined-limit behavior (SC-008), in tests/NaturalQuery.Redis.Tests/ (depends on T044)
-- [ ] T046 [P] [US6] Implement RedisQueryCache : IQueryCache (existing SHA256 key scheme, TTL from options, fail-open to miss) in src/NaturalQuery.Redis/RedisQueryCache.cs (depends on T044)
-- [ ] T047 [P] [US6] Implement RedisRateLimiter : IRateLimiter (atomic fixed-window INCR + EXPIRE via script, fail-closed with error log) in src/NaturalQuery.Redis/RedisRateLimiter.cs (depends on T044)
-- [ ] T048 [US6] Implement RedisExtensions UseRedisCache / UseRedisRateLimiter in src/NaturalQuery.Redis/RedisExtensions.cs (depends on T046, T047)
+- [x] T039 [US6] Add MySqlConnector package reference to src/NaturalQuery/NaturalQuery.csproj (only new core dependency)
+- [x] T040 [P] [US6] Implement MySqlQueryExecutor (wrapInTransaction support, read-only advisory, MaxResultRows cap, timeout token) in src/NaturalQuery/Providers/MySqlQueryExecutor.cs (depends on T039)
+- [x] T041 [P] [US6] Implement MySqlSchemaDiscovery via information_schema in src/NaturalQuery/Discovery/MySqlSchemaDiscovery.cs (depends on T039)
+- [x] T042 [P] [US6] Implement AnthropicProvider via raw HttpClient against `https://api.anthropic.com/v1/messages` (x-api-key + anthropic-version headers, token mapping, error classification) in src/NaturalQuery/Providers/AnthropicProvider.cs
+- [x] T043 [US6] Add UseAnthropicProvider, UseOpenRouterProvider (OpenAiProvider with custom BaseAddress + attribution headers), UseMySqlExecutor, UseMySqlSchemaDiscovery registrations in src/NaturalQuery/Extensions/ServiceCollectionExtensions.cs (depends on T040, T041, T042)
+- [x] T044 [US6] Create src/NaturalQuery.Redis/NaturalQuery.Redis.csproj (net8.0, StackExchange.Redis, version 2.1.0, version-locked to core) and add to solution
+- [x] T045 [US6] Create tests/NaturalQuery.Redis.Tests project (xUnit + FluentAssertions + Moq) and write tests with mocked IConnectionMultiplexer: cache fail-open → miss, limiter fail-closed → deny + logged, INCR+EXPIRE window semantics, combined-limit behavior (SC-008), in tests/NaturalQuery.Redis.Tests/ (depends on T044)
+- [x] T046 [P] [US6] Implement RedisQueryCache : IQueryCache (existing SHA256 key scheme, TTL from options, fail-open to miss) in src/NaturalQuery.Redis/RedisQueryCache.cs (depends on T044)
+- [x] T047 [P] [US6] Implement RedisRateLimiter : IRateLimiter (atomic fixed-window INCR + EXPIRE via script, fail-closed with error log) in src/NaturalQuery.Redis/RedisRateLimiter.cs (depends on T044)
+- [x] T048 [US6] Implement RedisExtensions UseRedisCache / UseRedisRateLimiter in src/NaturalQuery.Redis/RedisExtensions.cs (depends on T046, T047)
 
 **Checkpoint**: SC-008 and SC-011 green; core dependency footprint = +MySqlConnector only.
 
