@@ -77,6 +77,25 @@ Console.WriteLine(result.ChartType); // bar
 Console.WriteLine(result.Title);     // Top Products by Revenue
 ```
 
+## Security & Hardening (v2.1)
+
+NaturalQuery 2.1 hardens the pipeline end-to-end and adds enterprise features — all additive, zero breaking changes. See [CHANGELOG.md](CHANGELOG.md) for the full list and [specs/001-security-audit-enhancements/quickstart.md](specs/001-security-audit-enhancements/quickstart.md) for a full hardened-configuration example.
+
+Enabled by default, no config needed:
+- Obfuscation-resistant SQL validation (comments, whitespace tricks, dialect-specific write/execute operations all rejected)
+- Tenant identifiers validated against a safe character policy; tenant filters structurally verified (not just text-matched)
+- Endpoint input limits (2,000-char questions, 20-turn history), safe error responses with a correlation ID
+- Bounded rate-limiter memory, capped result rows (`result.Truncated`), query execution timeout
+- Prompt-injection screening (warn + flag by default; opt into strict blocking)
+- Startup configuration validation — impossible configs fail fast with the exact reason
+
+Opt-in:
+- Audit trail (`UseAuditSink`) and sensitive-column masking (`ColumnDef(..., sensitive: true)`)
+- MySQL/MariaDB, direct Anthropic provider, OpenRouter convenience
+- Shared-store cache/rate limiter via the `NaturalQuery.Redis` companion package
+- Health checks, native metrics, Excel export
+- Semantic cache, pagination, preview/approve execution flow
+
 ## ASP.NET Integration
 
 Map NaturalQuery as a web endpoint with a single line. This creates both GET and POST endpoints with conversation context support.

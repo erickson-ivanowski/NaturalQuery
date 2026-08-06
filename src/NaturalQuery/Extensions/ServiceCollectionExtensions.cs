@@ -54,6 +54,12 @@ public static class HealthCheckBuilderExtensions
         builder.Services.AddSingleton<NaturalQueryHealthCheck>();
         return builder.AddCheck<NaturalQueryHealthCheck>(name);
     }
+
+    /// <summary>Alias for <see cref="AddNaturalQueryHealthCheck"/>.</summary>
+    public static IHealthChecksBuilder AddNaturalQueryHealthChecks(
+        this IHealthChecksBuilder builder,
+        string name = "naturalquery")
+        => builder.AddNaturalQueryHealthCheck(name);
 }
 
 /// <summary>
