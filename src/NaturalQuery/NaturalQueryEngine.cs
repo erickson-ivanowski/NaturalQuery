@@ -184,6 +184,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
             if (_cache != null)
             {
                 var cached = await _cache.GetAsync(question, tenantId, ct);
+                Diagnostics.NaturalQueryMetrics.RecordCache(hit: cached != null);
                 if (cached != null)
                 {
                     _logger.LogInformation("NaturalQuery cache hit for question: {Question}", question[..Math.Min(50, question.Length)]);
@@ -363,6 +364,8 @@ public class NaturalQueryEngine : INaturalQueryEngine
                     Truncated = auditTruncated
                 });
             }
+
+            Diagnostics.NaturalQueryMetrics.RecordQuery(auditOutcome, tenantId, stopwatch.ElapsedMilliseconds, auditTokens);
         }
     }
 

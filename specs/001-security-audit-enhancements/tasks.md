@@ -186,18 +186,18 @@
 
 ### Tests for User Story 7 (write FIRST, must FAIL)
 
-- [ ] T049 [P] [US7] Write HealthCheckTests (healthy when executor reachable + provider configured, degraded on unreachable database, recovery) in tests/NaturalQuery.Tests/HealthCheckTests.cs
-- [ ] T050 [P] [US7] Write MetricsTests via MeterListener (query count with outcome/tenant tags, duration histogram, token counter, cache hit/miss, error rate) in tests/NaturalQuery.Tests/MetricsTests.cs
-- [ ] T051 [P] [US7] Write OptionsValidationTests — SC-010 matrix: tenant column XOR placeholder → fail with named problem, negative limits → fail, threshold outside (0.5, 1.0] → fail, all currently-valid configs → start, in tests/NaturalQuery.Tests/OptionsValidationTests.cs
-- [ ] T052 [P] [US7] Write ExcelExportTests: xlsx round-trip via ZipArchive (worksheet present, inline strings, number cells, header row, masked values preserved as `***`) in tests/NaturalQuery.Tests/ExcelExportTests.cs
+- [x] T049 [P] [US7] Write HealthCheckTests (healthy when executor reachable + provider configured, degraded on unreachable database, recovery) in tests/NaturalQuery.Tests/HealthCheckTests.cs
+- [x] T050 [P] [US7] Write MetricsTests via MeterListener (query count with outcome/tenant tags, duration histogram, token counter, cache hit/miss, error rate) in tests/NaturalQuery.Tests/MetricsTests.cs
+- [x] T051 [P] [US7] Write OptionsValidationTests — SC-010 matrix: tenant column XOR placeholder → fail with named problem, negative limits → fail, threshold outside (0.5, 1.0] → fail, all currently-valid configs → start, in tests/NaturalQuery.Tests/OptionsValidationTests.cs
+- [x] T052 [P] [US7] Write ExcelExportTests: xlsx round-trip via ZipArchive (worksheet present, inline strings, number cells, header row, masked values preserved as `***`) in tests/NaturalQuery.Tests/ExcelExportTests.cs
 
 ### Implementation for User Story 7
 
-- [ ] T053 [P] [US7] Implement NaturalQueryHealthCheck (IHealthCheck: executor ping via ConnectionValidator, provider configured/reachable — no billable LLM call) in src/NaturalQuery/Health/NaturalQueryHealthCheck.cs plus AddNaturalQueryHealthChecks extension
-- [ ] T054 [P] [US7] Implement NaturalQueryMetrics ("NaturalQuery" Meter: naturalquery.queries, naturalquery.tokens, naturalquery.cache, naturalquery.duration histogram) in src/NaturalQuery/Diagnostics/NaturalQueryMetrics.cs and instrument engine pipeline
-- [ ] T055 [P] [US7] Implement IValidateOptions&lt;NaturalQueryOptions&gt; (impossible-config errors only; MaxRetries clamp warns) and register automatically in AddNaturalQuery with ValidateOnStart semantics in src/NaturalQuery/Extensions/ServiceCollectionExtensions.cs
-- [ ] T056 [P] [US7] Implement MinimalXlsxWriter (System.IO.Compression.ZipArchive, one worksheet, inline strings, number detection) in src/NaturalQuery/Export/MinimalXlsxWriter.cs
-- [ ] T057 [US7] Add ToExcel() / ToExcelStream() extensions in src/NaturalQuery/Extensions/QueryResultExtensions.cs (depends on T056)
+- [x] T053 [P] [US7] Implement NaturalQueryHealthCheck (IHealthCheck: executor ping via ConnectionValidator, provider configured/reachable — no billable LLM call) in src/NaturalQuery/Health/NaturalQueryHealthCheck.cs plus AddNaturalQueryHealthChecks extension
+- [x] T054 [P] [US7] Implement NaturalQueryMetrics ("NaturalQuery" Meter: naturalquery.queries, naturalquery.tokens, naturalquery.cache, naturalquery.duration histogram) in src/NaturalQuery/Diagnostics/NaturalQueryMetrics.cs and instrument engine pipeline
+- [x] T055 [P] [US7] Implement IValidateOptions&lt;NaturalQueryOptions&gt; (impossible-config errors only; MaxRetries clamp warns) and register automatically in AddNaturalQuery with ValidateOnStart semantics in src/NaturalQuery/Extensions/ServiceCollectionExtensions.cs
+- [x] T056 [P] [US7] Implement MinimalXlsxWriter (System.IO.Compression.ZipArchive, one worksheet, inline strings, number detection) in src/NaturalQuery/Export/MinimalXlsxWriter.cs
+- [x] T057 [US7] Add ToExcel() / ToExcelStream() extensions in src/NaturalQuery/Extensions/QueryResultExtensions.cs (depends on T056)
 
 **Checkpoint**: SC-010 green; observability additive, zero new packages.
 

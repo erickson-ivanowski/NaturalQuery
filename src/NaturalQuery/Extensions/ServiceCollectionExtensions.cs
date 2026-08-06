@@ -1,9 +1,11 @@
 using Amazon.Athena;
 using Amazon.BedrockRuntime;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NaturalQuery.Auditing;
 using NaturalQuery.Caching;
+using NaturalQuery.Health;
 using NaturalQuery.Diagnostics;
 using NaturalQuery.Discovery;
 using NaturalQuery.Providers;
@@ -29,7 +31,27 @@ public static class ServiceCollectionExtensions
     {
         services.Configure(configure);
         services.AddScoped<INaturalQueryEngine, NaturalQueryEngine>();
+        services.AddSingleton<IValidateOptions<NaturalQueryOptions>, NaturalQueryOptionsValidator>();
+        services.AddOptions<NaturalQueryOptions>().ValidateOnStart();
         return new NaturalQueryBuilder(services);
+    }
+}
+
+/// <summary>
+/// Extension methods for registering NaturalQuery health checks.
+/// </summary>
+public static class HealthCheckBuilderExtensions
+{
+    /// <summary>
+    /// Registers a health check reporting the configured query executor and AI
+    /// provider reachability, integrated with the host's standard health system.
+    /// </summary>
+    public static IHealthChecksBuilder AddNaturalQueryHealthCheck(
+        this IHealthChecksBuilder builder,
+        string name = "naturalquery")
+    {
+        builder.Services.AddSingleton<NaturalQueryHealthCheck>();
+        return builder.AddCheck<NaturalQueryHealthCheck>(name);
     }
 }
 
