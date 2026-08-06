@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NaturalQuery.Auditing;
 using NaturalQuery.Caching;
+using NaturalQuery.Embeddings;
 using NaturalQuery.Health;
 using NaturalQuery.Diagnostics;
 using NaturalQuery.Discovery;
@@ -448,6 +449,41 @@ public class NaturalQueryBuilder
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MySqlSchemaDiscovery>>();
             return new MySqlSchemaDiscovery(connectionString, logger);
+        });
+        return this;
+    }
+
+    // ── Semantic Cache ──────────────────────────────────────────
+
+    /// <summary>
+    /// Enable the opt-in semantic cache. Requires an IEmbeddingProvider to be
+    /// registered (UseOpenAiEmbeddings / UseBedrockEmbeddings, or a custom one).
+    /// </summary>
+    public NaturalQueryBuilder UseSemanticCache()
+    {
+        _services.AddSingleton<ISemanticQueryCache>(sp =>
+        {
+            var embeddings = sp.GetRequiredService<IEmbeddingProvider>();
+            var options = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value;
+            return new SemanticQueryCache(embeddings, options.SemanticCacheSimilarityThreshold, options.CacheTtlMinutes);
+        });
+        return this;
+    }
+
+    /// <summary>Use OpenAI embeddings for the semantic cache.</summary>
+    public NaturalQueryBuilder UseOpenAiEmbeddings(string apiKey, string model = "text-embedding-3-small")
+    {
+        _services.AddSingleton<IEmbeddingProvider>(_ => new OpenAiEmbeddingProvider(new HttpClient(), apiKey, model));
+        return this;
+    }
+
+    /// <summary>Use an Amazon Bedrock embedding model for the semantic cache.</summary>
+    public NaturalQueryBuilder UseBedrockEmbeddings(string modelId = "amazon.titan-embed-text-v2:0")
+    {
+        _services.AddSingleton<IEmbeddingProvider>(sp =>
+        {
+            var client = sp.GetRequiredService<Amazon.BedrockRuntime.IAmazonBedrockRuntime>();
+            return new BedrockEmbeddingProvider(client, modelId);
         });
         return this;
     }

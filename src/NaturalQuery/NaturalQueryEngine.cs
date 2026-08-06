@@ -31,7 +31,10 @@ public class NaturalQueryEngine : INaturalQueryEngine
     private readonly IRateLimiter? _rateLimiter;
     private readonly IErrorHandler? _errorHandler;
     private readonly IAuditSink? _auditSink;
+    private readonly Caching.ISemanticQueryCache? _semanticCache;
+    private readonly Diagnostics.IQueryCostEstimator? _costEstimator;
     private readonly PromptInjectionScreener _injectionScreener;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, QueryResult> _pageCaptures = new();
 
     /// <summary>
     /// Initializes the NaturalQuery engine with all dependencies.
@@ -45,7 +48,9 @@ public class NaturalQueryEngine : INaturalQueryEngine
         IQueryCache? cache = null,
         IRateLimiter? rateLimiter = null,
         IErrorHandler? errorHandler = null,
-        IAuditSink? auditSink = null)
+        IAuditSink? auditSink = null,
+        Caching.ISemanticQueryCache? semanticCache = null,
+        Diagnostics.IQueryCostEstimator? costEstimator = null)
     {
         _llmProvider = llmProvider;
         _queryExecutor = queryExecutor;
@@ -55,6 +60,8 @@ public class NaturalQueryEngine : INaturalQueryEngine
         _rateLimiter = rateLimiter;
         _errorHandler = errorHandler;
         _auditSink = auditSink;
+        _semanticCache = semanticCache;
+        _costEstimator = costEstimator;
         _injectionScreener = new PromptInjectionScreener(_options.InjectionPatterns);
     }
 
@@ -184,7 +191,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
             if (_cache != null)
             {
                 var cached = await _cache.GetAsync(question, tenantId, ct);
-                Diagnostics.NaturalQueryMetrics.RecordCache(hit: cached != null);
+                Diagnostics.NaturalQueryMetrics.RecordCache(hit: cached != null, tenantId);
                 if (cached != null)
                 {
                     _logger.LogInformation("NaturalQuery cache hit for question: {Question}", question[..Math.Min(50, question.Length)]);
@@ -195,6 +202,22 @@ public class NaturalQueryEngine : INaturalQueryEngine
                     auditTokens = cached.TokensUsed;
                     auditTruncated = cached.Truncated;
                     return cached;
+                }
+            }
+
+            // Semantic cache check (opt-in) — strictly tenant-scoped
+            if (_semanticCache != null)
+            {
+                var semanticHit = await _semanticCache.GetSimilarAsync(question, tenantId, ct);
+                if (semanticHit != null)
+                {
+                    _logger.LogInformation("NaturalQuery semantic cache hit for question: {Question}", question[..Math.Min(50, question.Length)]);
+                    semanticHit.InjectionFlagged = injectionFlagged;
+                    auditOutcome = "success";
+                    auditSql = semanticHit.Sql;
+                    auditTokens = semanticHit.TokensUsed;
+                    auditTruncated = semanticHit.Truncated;
+                    return semanticHit;
                 }
             }
 
@@ -315,6 +338,11 @@ public class NaturalQueryEngine : INaturalQueryEngine
             // Cache store
             if (_cache != null)
                 await _cache.SetAsync(question, tenantId, result, ct);
+            if (_semanticCache != null)
+                await _semanticCache.SetAsync(question, tenantId, result, ct);
+
+            // Capture for pagination (AskPagedAsync slices this without an extra AI call)
+            _pageCaptures[PageCaptureKey(question, tenantId)] = result;
 
             // Add to conversation context
             context?.AddTurn(question, result.Sql);
@@ -399,6 +427,116 @@ public class NaturalQueryEngine : INaturalQueryEngine
 
         return ParseResponse(response);
     }
+
+    /// <summary>
+    /// Interprets and executes a question, returning a bounded slice of the result.
+    /// The full result is captured on first request (identical to a normal AskAsync
+    /// call); subsequent pages for the same question/tenant slice the captured
+    /// result without an additional AI call (FR-031).
+    /// </summary>
+    public async Task<QueryResult> AskPagedAsync(string question, int page, int pageSize, string? tenantId = null, ConversationContext? context = null, CancellationToken ct = default)
+    {
+        var key = PageCaptureKey(question, tenantId);
+
+        if (!_pageCaptures.TryGetValue(key, out var captured))
+        {
+            captured = await AskAsync(question, tenantId, context, ct);
+            _pageCaptures[key] = captured;
+        }
+
+        var page1Based = Math.Max(1, page);
+        var size = Math.Max(1, pageSize);
+        var skip = (page1Based - 1) * size;
+
+        var sliced = new QueryResult
+        {
+            Sql = captured.Sql,
+            ChartType = captured.ChartType,
+            Title = captured.Title,
+            Description = captured.Description,
+            Suggestions = captured.Suggestions,
+            TokensUsed = captured.TokensUsed,
+            ElapsedMs = captured.ElapsedMs,
+            Truncated = captured.Truncated,
+            CorrelationId = captured.CorrelationId,
+            InjectionFlagged = captured.InjectionFlagged,
+            TableData = captured.TableData?.Skip(skip).Take(size).ToList(),
+            ChartData = captured.ChartData?.Skip(skip).Take(size).ToList()
+        };
+
+        return sliced;
+    }
+
+    /// <summary>
+    /// Interprets a question and returns the generated, validated query and its
+    /// estimated cost (when an IQueryCostEstimator is registered) without
+    /// executing it (FR-032).
+    /// </summary>
+    public async Task<QueryPreview> PreviewAsync(string question, string? tenantId = null, ConversationContext? context = null, CancellationToken ct = default)
+    {
+        var interpreted = await InterpretAsync(question, tenantId, context, ct);
+
+        var sql = interpreted.Sql;
+        if (!string.IsNullOrEmpty(_options.TenantIdPlaceholder) && !string.IsNullOrEmpty(tenantId))
+            sql = sql.Replace(_options.TenantIdPlaceholder, tenantId);
+
+        var validationError = ValidateGeneratedSql(sql, tenantId);
+        if (validationError != null)
+            throw new InvalidOperationException($"Invalid query: {validationError}");
+
+        QueryCostEstimate? cost = null;
+        if (_costEstimator != null)
+        {
+            try
+            {
+                cost = await _costEstimator.EstimateAsync(sql, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "NaturalQuery cost estimation failed; preview will omit EstimatedCost");
+            }
+        }
+
+        return new QueryPreview
+        {
+            Sql = sql,
+            ChartType = interpreted.ChartType,
+            Title = interpreted.Title,
+            Description = interpreted.Description,
+            EstimatedCost = cost,
+            CorrelationId = GenerateCorrelationId()
+        };
+    }
+
+    /// <summary>
+    /// Executes a previously previewed, caller-approved query. Re-applies every
+    /// safety rule (hardened validation, tenant filter, masking, caps) at
+    /// execution time so a stale approval — e.g. after a config change — is
+    /// rejected rather than silently trusted (FR-032).
+    /// </summary>
+    public async Task<QueryResult> ExecuteApprovedAsync(string sql, string? tenantId = null, CancellationToken ct = default)
+    {
+        var validationError = ValidateGeneratedSql(sql, tenantId);
+        if (validationError != null)
+            throw new InvalidOperationException($"Invalid query: {validationError}");
+
+        var chartType = SqlLooksLikeChartShape(sql) ? Models.ChartType.Bar : Models.ChartType.Table;
+        var result = new QueryResult { Sql = sql, ChartType = chartType };
+
+        await ExecuteWithGovernanceAsync(result, sql, ct);
+
+        if (_options.Tables.Count > 0)
+            SensitiveDataMasker.Mask(result, _options.Tables);
+
+        result.CorrelationId = GenerateCorrelationId();
+        return result;
+    }
+
+    private static bool SqlLooksLikeChartShape(string sql) =>
+        sql.Contains("AS value", StringComparison.OrdinalIgnoreCase);
+
+    private static string PageCaptureKey(string question, string? tenantId) =>
+        $"{tenantId ?? "global"}::{question.Trim().ToLowerInvariant()}";
 
     /// <inheritdoc />
     public async Task<string> ExplainAsync(string sql, CancellationToken ct = default)

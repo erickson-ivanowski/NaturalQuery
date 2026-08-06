@@ -31,12 +31,14 @@ public static class NaturalQueryMetrics
     {
         var tenantTag = tenantId ?? "none";
         Queries.Add(1, new KeyValuePair<string, object?>("outcome", outcome), new KeyValuePair<string, object?>("tenant", tenantTag));
-        Duration.Record(elapsedMs, new KeyValuePair<string, object?>("outcome", outcome));
+        Duration.Record(elapsedMs, new KeyValuePair<string, object?>("outcome", outcome), new KeyValuePair<string, object?>("tenant", tenantTag));
         if (tokensUsed > 0)
             Tokens.Add(tokensUsed, new KeyValuePair<string, object?>("tenant", tenantTag));
     }
 
     /// <summary>Records a cache lookup result.</summary>
-    public static void RecordCache(bool hit) =>
-        Cache.Add(1, new KeyValuePair<string, object?>("result", hit ? "hit" : "miss"));
+    public static void RecordCache(bool hit, string? tenantId = null) =>
+        Cache.Add(1,
+            new KeyValuePair<string, object?>("result", hit ? "hit" : "miss"),
+            new KeyValuePair<string, object?>("tenant", tenantId ?? "none"));
 }

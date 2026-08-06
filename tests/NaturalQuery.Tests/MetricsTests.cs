@@ -12,7 +12,12 @@ namespace NaturalQuery.Tests;
 /// <summary>
 /// FR-027: native metrics — query count, latency, token usage, cache hit rate,
 /// error rate — observable via a standard .NET Meter/MeterListener pipeline.
+/// Runs in its own xUnit collection (disabled parallelization) because the
+/// NaturalQuery Meter is process-global — a MeterListener in this class would
+/// otherwise also observe measurements emitted by engines in other test classes
+/// running concurrently.
 /// </summary>
+[Collection("MetricsTests")]
 public class MetricsTests : IDisposable
 {
     private const string SuccessLlmJson = "{\"sql\":\"SELECT COUNT(*) AS value FROM users\",\"chartType\":\"metric\",\"title\":\"t\",\"description\":\"d\"}";
@@ -39,6 +44,13 @@ public class MetricsTests : IDisposable
 
     public void Dispose() => _listener.Dispose();
 
+    /// <summary>
+    /// Unique per-test tenant tag: the NaturalQuery Meter is process-global, so
+    /// even with collection-level isolation a test must filter to its own
+    /// measurements rather than assume the list contains only its own activity.
+    /// </summary>
+    private readonly string _tenant = $"metrics-test-{Guid.NewGuid():N}";
+
     private NaturalQueryEngine CreateEngine()
     {
         var options = new NaturalQueryOptions();
@@ -56,14 +68,17 @@ public class MetricsTests : IDisposable
             NullLogger<NaturalQueryEngine>.Instance);
     }
 
+    private IEnumerable<(string Name, object? Value, KeyValuePair<string, object?>[] Tags)> OwnMeasurements(string name) =>
+        _measurements.Where(m => m.Name == name && m.Tags.Any(t => t.Key == "tenant" && (string?)t.Value == _tenant));
+
     [Fact]
     public async Task Successful_Query_Should_Record_Query_Count()
     {
         var engine = CreateEngine();
 
-        await engine.AskAsync("how many users?");
+        await engine.AskAsync("how many users?", _tenant);
 
-        _measurements.Should().Contain(m => m.Name == "naturalquery.queries");
+        OwnMeasurements("naturalquery.queries").Should().NotBeEmpty();
     }
 
     [Fact]
@@ -71,9 +86,9 @@ public class MetricsTests : IDisposable
     {
         var engine = CreateEngine();
 
-        await engine.AskAsync("how many users?");
+        await engine.AskAsync("how many users?", _tenant);
 
-        _measurements.Should().Contain(m => m.Name == "naturalquery.duration");
+        OwnMeasurements("naturalquery.duration").Should().NotBeEmpty();
     }
 
     [Fact]
@@ -81,10 +96,9 @@ public class MetricsTests : IDisposable
     {
         var engine = CreateEngine();
 
-        await engine.AskAsync("how many users?");
+        await engine.AskAsync("how many users?", _tenant);
 
-        var tokenMeasurement = _measurements.FirstOrDefault(m => m.Name == "naturalquery.tokens");
-        tokenMeasurement.Name.Should().Be("naturalquery.tokens");
+        var tokenMeasurement = OwnMeasurements("naturalquery.tokens").Single();
         Convert.ToInt64(tokenMeasurement.Value).Should().Be(42);
     }
 
@@ -93,9 +107,9 @@ public class MetricsTests : IDisposable
     {
         var engine = CreateEngine();
 
-        await engine.AskAsync("how many users?");
+        await engine.AskAsync("how many users?", _tenant);
 
-        var queryMeasurement = _measurements.First(m => m.Name == "naturalquery.queries");
+        var queryMeasurement = OwnMeasurements("naturalquery.queries").Single();
         queryMeasurement.Tags.Should().Contain(t => t.Key == "outcome" && (string?)t.Value == "success");
     }
 
@@ -107,9 +121,9 @@ public class MetricsTests : IDisposable
             .Setup(e => e.ExecuteChartQueryAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new Exception("boom"));
 
-        await engine.Invoking(e => e.AskAsync("q")).Should().ThrowAsync<Exception>();
+        await engine.Invoking(e => e.AskAsync("q", _tenant)).Should().ThrowAsync<Exception>();
 
-        var queryMeasurement = _measurements.First(m => m.Name == "naturalquery.queries");
+        var queryMeasurement = OwnMeasurements("naturalquery.queries").Single();
         queryMeasurement.Tags.Should().Contain(t => t.Key == "outcome" && (string?)t.Value != "success");
     }
 
@@ -125,9 +139,12 @@ public class MetricsTests : IDisposable
             _llmMock.Object, _executorMock.Object, options,
             NullLogger<NaturalQueryEngine>.Instance, cache: cacheMock.Object);
 
-        await engine.AskAsync("how many users?");
+        await engine.AskAsync("how many users?", _tenant);
 
-        _measurements.Should().Contain(m => m.Name == "naturalquery.cache" &&
+        OwnMeasurements("naturalquery.cache").Should().Contain(m =>
             m.Tags.Any(t => t.Key == "result" && (string?)t.Value == "hit"));
     }
 }
+
+[CollectionDefinition("MetricsTests", DisableParallelization = true)]
+public class MetricsTestsCollection { }

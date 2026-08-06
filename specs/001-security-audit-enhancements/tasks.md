@@ -211,20 +211,20 @@
 
 ### Tests for User Story 8 (write FIRST, must FAIL)
 
-- [ ] T058 [P] [US8] Write SemanticCacheTests: paraphrase pair hits without AI call, antonym pair ("top" vs "worst") below threshold → fresh call, different tenant never shares, expiry honored, SC-009 benchmark ≥30% reduction, in tests/NaturalQuery.Tests/SemanticCacheTests.cs
-- [ ] T059 [P] [US8] Write PaginationTests: stable ordering across pages, no AI call per page, captured-result semantics after underlying data changes, Truncated inheritance, in tests/NaturalQuery.Tests/PaginationTests.cs
-- [ ] T060 [P] [US8] Write PreviewExecuteTests: preview returns sql + cost estimate without execution, approved execution re-validated (hardened validator + tenant checks + masking + caps), stale approval after config change rejected, in tests/NaturalQuery.Tests/PreviewExecuteTests.cs
+- [x] T058 [P] [US8] Write SemanticCacheTests: paraphrase pair hits without AI call, antonym pair ("top" vs "worst") below threshold → fresh call, different tenant never shares, expiry honored, SC-009 benchmark ≥30% reduction, in tests/NaturalQuery.Tests/SemanticCacheTests.cs
+- [x] T059 [P] [US8] Write PaginationTests: stable ordering across pages, no AI call per page, captured-result semantics after underlying data changes, Truncated inheritance, in tests/NaturalQuery.Tests/PaginationTests.cs
+- [x] T060 [P] [US8] Write PreviewExecuteTests: preview returns sql + cost estimate without execution, approved execution re-validated (hardened validator + tenant checks + masking + caps), stale approval after config change rejected, in tests/NaturalQuery.Tests/PreviewExecuteTests.cs
 
 ### Implementation for User Story 8
 
-- [ ] T061 [P] [US8] Create IEmbeddingProvider (`EmbedAsync(string, CancellationToken) → float[]`) in src/NaturalQuery/Embeddings/IEmbeddingProvider.cs
-- [ ] T062 [P] [US8] Implement OpenAiEmbeddingProvider (HttpClient pattern, no new dependency) in src/NaturalQuery/Embeddings/OpenAiEmbeddingProvider.cs (depends on T061)
-- [ ] T063 [P] [US8] Implement BedrockEmbeddingProvider (existing AWSSDK dependency) in src/NaturalQuery/Embeddings/BedrockEmbeddingProvider.cs (depends on T061)
-- [ ] T064 [US8] Create ISemanticQueryCache + SemanticQueryCache (in-memory embedding store, cosine similarity ≥ threshold, strict tenant scoping, exact-cache expiry rules, fall-through on miss/error) in src/NaturalQuery/Caching/ISemanticQueryCache.cs and src/NaturalQuery/Caching/SemanticQueryCache.cs (depends on T061)
-- [ ] T065 [US8] Add UseSemanticCache, UseOpenAiEmbeddings, UseBedrockEmbeddings registrations in src/NaturalQuery/Extensions/ServiceCollectionExtensions.cs and wire semantic lookup into engine ahead of LLM call (depends on T062, T063, T064)
-- [ ] T066 [P] [US8] Create QueryPreview model (Sql, ChartType, Title, Description, EstimatedCost?, CorrelationId) in src/NaturalQuery/Models/QueryPreview.cs
-- [ ] T067 [US8] Implement AskPagedAsync (slices cached captured result), PreviewAsync (no execution, cost via IQueryCostEstimator when registered), ExecuteApprovedAsync (full re-validation at execution time) in src/NaturalQuery/NaturalQueryEngine.cs, and add matching default interface members to src/NaturalQuery/INaturalQueryEngine.cs (depends on T066)
-- [ ] T068 [US8] Add `POST {prefix}/preview`, `POST {prefix}/execute` routes and `page`/`pageSize` parameters (GET query string / POST body) in src/NaturalQuery/Extensions/EndpointRouteBuilderExtensions.cs (depends on T067)
+- [x] T061 [P] [US8] Create IEmbeddingProvider (`EmbedAsync(string, CancellationToken) → float[]`) in src/NaturalQuery/Embeddings/IEmbeddingProvider.cs
+- [x] T062 [P] [US8] Implement OpenAiEmbeddingProvider (HttpClient pattern, no new dependency) in src/NaturalQuery/Embeddings/OpenAiEmbeddingProvider.cs (depends on T061)
+- [x] T063 [P] [US8] Implement BedrockEmbeddingProvider (existing AWSSDK dependency) in src/NaturalQuery/Embeddings/BedrockEmbeddingProvider.cs (depends on T061)
+- [x] T064 [US8] Create ISemanticQueryCache + SemanticQueryCache (in-memory embedding store, cosine similarity ≥ threshold, strict tenant scoping, exact-cache expiry rules, fall-through on miss/error) in src/NaturalQuery/Caching/ISemanticQueryCache.cs and src/NaturalQuery/Caching/SemanticQueryCache.cs (depends on T061)
+- [x] T065 [US8] Add UseSemanticCache, UseOpenAiEmbeddings, UseBedrockEmbeddings registrations in src/NaturalQuery/Extensions/ServiceCollectionExtensions.cs and wire semantic lookup into engine ahead of LLM call (depends on T062, T063, T064)
+- [x] T066 [P] [US8] Create QueryPreview model (Sql, ChartType, Title, Description, EstimatedCost?, CorrelationId) in src/NaturalQuery/Models/QueryPreview.cs
+- [x] T067 [US8] Implement AskPagedAsync (slices cached captured result), PreviewAsync (no execution, cost via IQueryCostEstimator when registered), ExecuteApprovedAsync (full re-validation at execution time) in src/NaturalQuery/NaturalQueryEngine.cs, and add matching default interface members to src/NaturalQuery/INaturalQueryEngine.cs (depends on T066)
+- [x] T068 [US8] Add `POST {prefix}/preview`, `POST {prefix}/execute` routes and `page`/`pageSize` parameters (GET query string / POST body) in src/NaturalQuery/Extensions/EndpointRouteBuilderExtensions.cs (depends on T067)
 
 **Checkpoint**: SC-009 green; all opt-in — absence changes nothing for existing users.
 
@@ -234,10 +234,10 @@
 
 **Purpose**: Cross-cutting release work — samples, docs, version, full verification.
 
-- [ ] T069 [P] Add hardened-configuration example (<10 lines enabling authorization, limits, audit, masking per quickstart.md — SC-007) to samples/WebApi without modifying existing sample code paths
-- [ ] T070 [P] Update README.md and CHANGELOG.md: new features, behavioral-delta table from contracts/public-api.md documented under "Security fixes"
-- [ ] T071 Bump version to 2.1.0 in src/NaturalQuery/NaturalQuery.csproj and src/NaturalQuery.Redis/NaturalQuery.Redis.csproj
-- [ ] T072 Run full suite (`dotnet test` on both test projects) and verify SC-001…SC-011 checklist; confirm existing 16 test files pass unmodified (SC-003)
+- [x] T069 [P] Add hardened-configuration example (<10 lines enabling authorization, limits, audit, masking per quickstart.md — SC-007) to samples/WebApi without modifying existing sample code paths
+- [x] T070 [P] Update README.md and CHANGELOG.md: new features, behavioral-delta table from contracts/public-api.md documented under "Security fixes"
+- [x] T071 Bump version to 2.1.0 in src/NaturalQuery/NaturalQuery.csproj and src/NaturalQuery.Redis/NaturalQuery.Redis.csproj
+- [x] T072 Run full suite (`dotnet test` on both test projects) and verify SC-001…SC-011 checklist; confirm existing 16 test files pass unmodified (SC-003)
 
 ---
 
