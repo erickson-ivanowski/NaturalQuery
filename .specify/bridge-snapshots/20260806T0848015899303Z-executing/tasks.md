@@ -20,7 +20,7 @@
 
 **Purpose**: Baseline verification — existing solution/projects already exist; this feature adds onto them.
 
-- [x] T001 Run `dotnet build` and `dotnet test` on tests/NaturalQuery.Tests to record the green baseline that must stay green unmodified throughout (SC-003)
+- [ ] T001 Run `dotnet build` and `dotnet test` on tests/NaturalQuery.Tests to record the green baseline that must stay green unmodified throughout (SC-003)
 
 ---
 
@@ -30,11 +30,11 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [x] T002 [P] Add InjectionScreeningMode enum (Off, Warn, Block) in src/NaturalQuery/Security/InjectionScreeningMode.cs
-- [x] T003 Extend NaturalQueryOptions with additive properties MaxQuestionLength (2000), MaxContextTurns (20), MaxResultRows (10000), QueryTimeoutSeconds (30), TenantIdPattern (`^[A-Za-z0-9._-]{1,128}$`), InjectionScreening (Warn), InjectionPatterns (built-in list), SemanticCacheSimilarityThreshold (0.97) in src/NaturalQuery/NaturalQueryOptions.cs (depends on T002)
-- [x] T004 [P] Add additive properties Truncated (bool, false), CorrelationId (string?, null), InjectionFlagged (bool, false) to QueryResult in src/NaturalQuery/Models/QueryResult.cs
-- [x] T005 [P] Add Sensitive flag to ColumnDef via new constructor overload + init-able property (existing constructors untouched) in src/NaturalQuery/Models/TableSchema.cs
-- [x] T006 Add correlation-ID generation in engine pipeline (Activity.Current?.TraceId fallback Guid) and stamp QueryResult.CorrelationId in src/NaturalQuery/NaturalQueryEngine.cs (depends on T004)
+- [ ] T002 [P] Add InjectionScreeningMode enum (Off, Warn, Block) in src/NaturalQuery/Security/InjectionScreeningMode.cs
+- [ ] T003 Extend NaturalQueryOptions with additive properties MaxQuestionLength (2000), MaxContextTurns (20), MaxResultRows (10000), QueryTimeoutSeconds (30), TenantIdPattern (`^[A-Za-z0-9._-]{1,128}$`), InjectionScreening (Warn), InjectionPatterns (built-in list), SemanticCacheSimilarityThreshold (0.97) in src/NaturalQuery/NaturalQueryOptions.cs (depends on T002)
+- [ ] T004 [P] Add additive properties Truncated (bool, false), CorrelationId (string?, null), InjectionFlagged (bool, false) to QueryResult in src/NaturalQuery/Models/QueryResult.cs
+- [ ] T005 [P] Add Sensitive flag to ColumnDef via new constructor overload + init-able property (existing constructors untouched) in src/NaturalQuery/Models/TableSchema.cs
+- [ ] T006 Add correlation-ID generation in engine pipeline (Activity.Current?.TraceId fallback Guid) and stamp QueryResult.CorrelationId in src/NaturalQuery/NaturalQueryEngine.cs (depends on T004)
 
 **Checkpoint**: Solution builds; existing suite still green; new surface available to all stories.
 
@@ -48,14 +48,14 @@
 
 ### Tests for User Story 1 (write FIRST, must FAIL before implementation)
 
-- [x] T007 [P] [US1] Write SqlNormalizerTests: `--` line comments, `/* */` block comments stripped loop-until-stable, string literals removed with `''` escape handling, whitespace (spaces/tabs/newlines) collapsed to single spaces, in tests/NaturalQuery.Tests/SqlNormalizerTests.cs
-- [x] T008 [P] [US1] Write SqlValidatorHardeningTests with SC-001 corpus: obfuscated bypasses (`DELETE/**/FROM`, newline-split keywords, casing tricks), expanded denylist (MERGE, EXEC, EXECUTE, CALL, ATTACH, DETACH, PRAGMA, COPY, VACUUM, REINDEX, LOAD, OUTFILE, DUMPFILE, SELECT…INTO, xp_/sp_ prefixes, OPENROWSET, OPENQUERY), multi-statement tricks, PLUS legitimate corpus (dangerous words inside quoted literals accepted, INFORMATION_SCHEMA reads accepted), in tests/NaturalQuery.Tests/SqlValidatorHardeningTests.cs
+- [ ] T007 [P] [US1] Write SqlNormalizerTests: `--` line comments, `/* */` block comments stripped loop-until-stable, string literals removed with `''` escape handling, whitespace (spaces/tabs/newlines) collapsed to single spaces, in tests/NaturalQuery.Tests/SqlNormalizerTests.cs
+- [ ] T008 [P] [US1] Write SqlValidatorHardeningTests with SC-001 corpus: obfuscated bypasses (`DELETE/**/FROM`, newline-split keywords, casing tricks), expanded denylist (MERGE, EXEC, EXECUTE, CALL, ATTACH, DETACH, PRAGMA, COPY, VACUUM, REINDEX, LOAD, OUTFILE, DUMPFILE, SELECT…INTO, xp_/sp_ prefixes, OPENROWSET, OPENQUERY), multi-statement tricks, PLUS legitimate corpus (dangerous words inside quoted literals accepted, INFORMATION_SCHEMA reads accepted), in tests/NaturalQuery.Tests/SqlValidatorHardeningTests.cs
 
 ### Implementation for User Story 1
 
-- [x] T009 [US1] Implement SqlNormalizer (comment stripping, single-quote-aware literal removal, whitespace collapse) in src/NaturalQuery/Validation/SqlNormalizer.cs
-- [x] T010 [US1] Harden SqlValidator: run SqlNormalizer pipeline then word-boundary regex denylist (`\bDELETE\b` etc.) over normalized text with the expanded forbidden set; keep existing public signature and result conventions, in src/NaturalQuery/Validation/SqlValidator.cs (depends on T009)
-- [x] T011 [US1] Verify/enforce identical validation on the retry/repair path in src/NaturalQuery/NaturalQueryEngine.cs — every route to execution passes the hardened validator (FR-004)
+- [ ] T009 [US1] Implement SqlNormalizer (comment stripping, single-quote-aware literal removal, whitespace collapse) in src/NaturalQuery/Validation/SqlNormalizer.cs
+- [ ] T010 [US1] Harden SqlValidator: run SqlNormalizer pipeline then word-boundary regex denylist (`\bDELETE\b` etc.) over normalized text with the expanded forbidden set; keep existing public signature and result conventions, in src/NaturalQuery/Validation/SqlValidator.cs (depends on T009)
+- [ ] T011 [US1] Verify/enforce identical validation on the retry/repair path in src/NaturalQuery/NaturalQueryEngine.cs — every route to execution passes the hardened validator (FR-004)
 
 **Checkpoint**: SC-001 corpus green; existing suite green unmodified. US1 shippable as MVP.
 

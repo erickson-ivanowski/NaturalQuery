@@ -1,0 +1,12 @@
+{"timestamp":"2026-08-06T08:20:32.3136015Z","action":"guard","status":"allow","feature_directory":"","decision":"allow","reason":"","actor":"claude","checked_action":"speckit.clarify"}
+
+{"timestamp":"2026-08-06T08:35:52.0242407Z","action":"guard","status":"allow","feature_directory":"","decision":"allow","reason":"","actor":"claude","checked_action":"speckit.plan"}
+
+{"timestamp":"2026-08-06T08:42:18.4547381Z","action":"guard","status":"allow","feature_directory":"","decision":"allow","reason":"","actor":"claude","checked_action":"speckit.tasks"}
+
+{"timestamp":"2026-08-06T08:45:33.3429289Z","action":"handoff","status":"ready","feature_directory":"specs/001-security-audit-enhancements","decision":"updated","reason":"","actor":"claude","prior_actor":"","snapshot_id":"20260806T0845333128276Z-ready"}
+
+{"timestamp":"2026-08-06T08:48:01.6705793Z","action":"handoff","status":"executing","feature_directory":"specs/001-security-audit-enhancements","decision":"updated","reason":"","actor":"claude","prior_actor":"claude","snapshot_id":"20260806T0848015899303Z-executing"}
+
+{"timestamp":"2026-08-06T08:48:01.8315590Z","action":"guard","status":"allow","feature_directory":"specs/001-security-audit-enhancements","decision":"allow","reason":"","actor":"claude","checked_action":"superpowers:executing-plans"}
+

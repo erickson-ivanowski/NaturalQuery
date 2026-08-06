@@ -346,19 +346,10 @@ public class NaturalQueryEngine : INaturalQueryEngine
         if (string.IsNullOrWhiteSpace(sql))
             throw new InvalidOperationException("LLM response is missing the 'sql' field.");
 
-        // Validate SQL structure
-        var sqlUpper = sql.Trim().ToUpperInvariant();
-        if (!sqlUpper.StartsWith("SELECT") && !sqlUpper.StartsWith("WITH"))
-            throw new InvalidOperationException("Only SELECT queries are allowed.");
-
-        // Remove string literals for false-positive prevention
-        var sqlNoStrings = Regex.Replace(sqlUpper, "'[^']*'", "''");
-        var forbidden = new[] { "DELETE ", "UPDATE ", " INSERT INTO", "DROP ", "ALTER ", "CREATE ", "TRUNCATE ", "GRANT ", "REVOKE " };
-        foreach (var word in forbidden)
-        {
-            if (sqlNoStrings.Contains(word))
-                throw new InvalidOperationException($"Forbidden SQL keyword: {word.Trim()}");
-        }
+        // Validate SQL safety with the same hardened pipeline used everywhere else (FR-004)
+        var safetyError = Validation.SqlValidator.Validate(sql);
+        if (safetyError != null)
+            throw new InvalidOperationException(safetyError);
 
         // Chart type
         var chartType = root.TryGetProperty("chartType", out var ctProp) ? ctProp.GetString() ?? "table" : "table";
