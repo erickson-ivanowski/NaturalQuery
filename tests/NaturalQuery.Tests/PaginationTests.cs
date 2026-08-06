@@ -93,4 +93,18 @@ public class PaginationTests
 
         page.TableData.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task Different_Tenants_Should_Not_Share_A_Page_Capture()
+    {
+        var engine = CreateEngine(25);
+
+        var pageA = await engine.AskPagedAsync("list users", page: 1, pageSize: 10, tenantId: "tenant-a");
+        var pageB = await engine.AskPagedAsync("list users", page: 1, pageSize: 10, tenantId: "tenant-b");
+
+        // Distinct tenants must each trigger their own capture (own AI call) — no cross-tenant reuse.
+        _llmMock.Verify(p => p.GenerateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        pageA.TableData.Should().HaveCount(10);
+        pageB.TableData.Should().HaveCount(10);
+    }
 }

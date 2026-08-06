@@ -34,7 +34,17 @@ public class NaturalQueryEngine : INaturalQueryEngine
     private readonly Caching.ISemanticQueryCache? _semanticCache;
     private readonly Diagnostics.IQueryCostEstimator? _costEstimator;
     private readonly PromptInjectionScreener _injectionScreener;
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, QueryResult> _pageCaptures = new();
+
+    /// <summary>
+    /// Bounded, TTL-evicted store backing AskPagedAsync — a capture is reused for
+    /// a limited window so paging never triggers extra AI calls, but the store
+    /// cannot grow without bound across the process lifetime (defense against
+    /// unbounded memory growth under high question diversity).
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (QueryResult Result, DateTime ExpiresAtUtc)> _pageCaptures = new();
+    private const int PageCaptureSoftCap = 5_000;
+    private static readonly TimeSpan PageCaptureTtl = TimeSpan.FromMinutes(10);
+    private long _lastPageCaptureSweepTicks;
 
     /// <summary>
     /// Initializes the NaturalQuery engine with all dependencies.
@@ -342,7 +352,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
                 await _semanticCache.SetAsync(question, tenantId, result, ct);
 
             // Capture for pagination (AskPagedAsync slices this without an extra AI call)
-            _pageCaptures[PageCaptureKey(question, tenantId)] = result;
+            StorePageCapture(PageCaptureKey(question, tenantId), result);
 
             // Add to conversation context
             context?.AddTurn(question, result.Sql);
@@ -438,10 +448,15 @@ public class NaturalQueryEngine : INaturalQueryEngine
     {
         var key = PageCaptureKey(question, tenantId);
 
-        if (!_pageCaptures.TryGetValue(key, out var captured))
+        QueryResult captured;
+        if (_pageCaptures.TryGetValue(key, out var entry) && entry.ExpiresAtUtc > DateTime.UtcNow)
+        {
+            captured = entry.Result;
+        }
+        else
         {
             captured = await AskAsync(question, tenantId, context, ct);
-            _pageCaptures[key] = captured;
+            StorePageCapture(key, captured);
         }
 
         var page1Based = Math.Max(1, page);
@@ -537,6 +552,33 @@ public class NaturalQueryEngine : INaturalQueryEngine
 
     private static string PageCaptureKey(string question, string? tenantId) =>
         $"{tenantId ?? "global"}::{question.Trim().ToLowerInvariant()}";
+
+    /// <summary>
+    /// Stores a page capture with a TTL and opportunistically sweeps expired
+    /// entries once the store exceeds a soft cap, keeping memory bounded under
+    /// unbounded question diversity without needing a background timer.
+    /// </summary>
+    private void StorePageCapture(string key, QueryResult result)
+    {
+        var now = DateTime.UtcNow;
+        _pageCaptures[key] = (result, now + PageCaptureTtl);
+
+        if (_pageCaptures.Count <= PageCaptureSoftCap)
+            return;
+
+        var nowTicks = now.Ticks;
+        var lastSweep = Interlocked.Read(ref _lastPageCaptureSweepTicks);
+        if (nowTicks - lastSweep < TimeSpan.TicksPerSecond)
+            return;
+        if (Interlocked.CompareExchange(ref _lastPageCaptureSweepTicks, nowTicks, lastSweep) != lastSweep)
+            return;
+
+        foreach (var pair in _pageCaptures)
+        {
+            if (pair.Value.ExpiresAtUtc <= now)
+                _pageCaptures.TryRemove(pair.Key, out _);
+        }
+    }
 
     /// <inheritdoc />
     public async Task<string> ExplainAsync(string sql, CancellationToken ct = default)

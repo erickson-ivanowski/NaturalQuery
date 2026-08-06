@@ -126,5 +126,22 @@ public static class MinimalXlsxWriter
         return letters;
     }
 
-    private static string Escape(string value) => System.Security.SecurityElement.Escape(value) ?? value;
+    /// <summary>
+    /// Escapes a value for inclusion in worksheet XML text content. Handles the
+    /// standard XML entities, then strips characters that are illegal in XML 1.0
+    /// (control characters other than tab/LF/CR) so a stray byte in source data
+    /// can never produce a non-well-formed workbook.
+    /// </summary>
+    private static string Escape(string value)
+    {
+        var escaped = System.Security.SecurityElement.Escape(value) ?? value;
+        var sb = new StringBuilder(escaped.Length);
+        foreach (var c in escaped)
+        {
+            var isValidXmlChar = c is '\t' or '\n' or '\r' || (c >= 0x20 && c != 0xFFFE && c != 0xFFFF);
+            if (isValidXmlChar)
+                sb.Append(c);
+        }
+        return sb.ToString();
+    }
 }
