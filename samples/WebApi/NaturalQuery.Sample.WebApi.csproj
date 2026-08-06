@@ -7,4 +7,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\NaturalQuery\NaturalQuery.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Reference-only: hardened-config example (SC-007), not part of the running sample -->
+    <Compile Remove="Program.Hardened.cs" />
+  </ItemGroup>
 </Project>

@@ -1,4 +1,5 @@
 using NaturalQuery.Models;
+using NaturalQuery.Security;
 
 namespace NaturalQuery;
 
@@ -55,4 +56,34 @@ public class NaturalQueryOptions
     /// Default: 0 (no retries). Maximum: 3.
     /// </summary>
     public int MaxRetries { get; set; } = 0;
+
+    /// <summary>Maximum question length in characters. Oversized questions are rejected before any AI call. Default: 2000.</summary>
+    public int MaxQuestionLength { get; set; } = 2000;
+
+    /// <summary>Maximum number of conversation-history turns accepted from the caller. Default: 20.</summary>
+    public int MaxContextTurns { get; set; } = 20;
+
+    /// <summary>Maximum result row count; results exceeding it are truncated and marked. Default: 10000.</summary>
+    public int MaxResultRows { get; set; } = 10000;
+
+    /// <summary>Query execution timeout in seconds; database work is cancelled when exceeded. Default: 30.</summary>
+    public int QueryTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Regex policy a tenant identifier must fully match before any use.
+    /// Default allows letters, digits, dot, hyphen, underscore, up to 128 characters.
+    /// </summary>
+    public string TenantIdPattern { get; set; } = "^[A-Za-z0-9._-]{1,128}$";
+
+    /// <summary>Prompt-injection screening mode. Default: Warn (log + flag, never refuse).</summary>
+    public InjectionScreeningMode InjectionScreening { get; set; } = InjectionScreeningMode.Warn;
+
+    /// <summary>Additional prompt-injection regex patterns extending the built-in set.</summary>
+    public List<string> InjectionPatterns { get; set; } = new();
+
+    /// <summary>
+    /// Cosine-similarity threshold for the opt-in semantic cache. Must be in (0.5, 1.0].
+    /// Conservative by default: wrong reuse is a defect. Default: 0.97.
+    /// </summary>
+    public double SemanticCacheSimilarityThreshold { get; set; } = 0.97;
 }

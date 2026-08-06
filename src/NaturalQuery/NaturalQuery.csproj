@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>NaturalQuery</PackageId>
-    <Version>2.0.0</Version>
+    <Version>2.1.0</Version>
     <Authors>Erickson Ivanowski</Authors>
     <Description>NL2SQL engine for .NET — convert natural language questions to SQL queries using LLMs</Description>
     <PackageTags>nl2sql;natural-language;natural-language-processing;nlp;text-to-sql;sql;ai;llm;generative-ai;bedrock;claude;athena;analytics;reporting;conversational-bi</PackageTags>
@@ -33,6 +33,7 @@
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.*" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.*" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.*" />
+    <PackageReference Include="MySqlConnector" Version="2.*" />
     <PackageReference Include="Npgsql" Version="8.*" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.*" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.*" />

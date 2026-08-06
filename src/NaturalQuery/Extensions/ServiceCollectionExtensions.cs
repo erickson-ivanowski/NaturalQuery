@@ -1,8 +1,12 @@
 using Amazon.Athena;
 using Amazon.BedrockRuntime;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using NaturalQuery.Auditing;
 using NaturalQuery.Caching;
+using NaturalQuery.Embeddings;
+using NaturalQuery.Health;
 using NaturalQuery.Diagnostics;
 using NaturalQuery.Discovery;
 using NaturalQuery.Providers;
@@ -28,8 +32,34 @@ public static class ServiceCollectionExtensions
     {
         services.Configure(configure);
         services.AddScoped<INaturalQueryEngine, NaturalQueryEngine>();
+        services.AddSingleton<IValidateOptions<NaturalQueryOptions>, NaturalQueryOptionsValidator>();
+        services.AddOptions<NaturalQueryOptions>().ValidateOnStart();
         return new NaturalQueryBuilder(services);
     }
+}
+
+/// <summary>
+/// Extension methods for registering NaturalQuery health checks.
+/// </summary>
+public static class HealthCheckBuilderExtensions
+{
+    /// <summary>
+    /// Registers a health check reporting the configured query executor and AI
+    /// provider reachability, integrated with the host's standard health system.
+    /// </summary>
+    public static IHealthChecksBuilder AddNaturalQueryHealthCheck(
+        this IHealthChecksBuilder builder,
+        string name = "naturalquery")
+    {
+        builder.Services.AddSingleton<NaturalQueryHealthCheck>();
+        return builder.AddCheck<NaturalQueryHealthCheck>(name);
+    }
+
+    /// <summary>Alias for <see cref="AddNaturalQueryHealthCheck"/>.</summary>
+    public static IHealthChecksBuilder AddNaturalQueryHealthChecks(
+        this IHealthChecksBuilder builder,
+        string name = "naturalquery")
+        => builder.AddNaturalQueryHealthCheck(name);
 }
 
 /// <summary>
@@ -44,6 +74,12 @@ public class NaturalQueryBuilder
     {
         _services = services;
     }
+
+    /// <summary>
+    /// The underlying service collection, so companion packages (e.g. NaturalQuery.Redis)
+    /// can register their own implementations of the extension points.
+    /// </summary>
+    public IServiceCollection Services => _services;
 
     // ── LLM Providers ───────────────────────────────────────────
 
@@ -86,6 +122,43 @@ public class NaturalQueryBuilder
         return this;
     }
 
+    /// <summary>
+    /// Use the direct Anthropic Messages API (Claude) as the LLM provider.
+    /// No SDK dependency — uses raw HttpClient.
+    /// </summary>
+    /// <param name="apiKey">Anthropic API key.</param>
+    /// <param name="model">Model ID. Default: "claude-sonnet-5".</param>
+    public NaturalQueryBuilder UseAnthropicProvider(string apiKey, string model = "claude-sonnet-5")
+    {
+        _services.AddSingleton<ILlmProvider>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value;
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<AnthropicProvider>>();
+            return new AnthropicProvider(new HttpClient(), apiKey, model, options.MaxTokens, logger);
+        });
+        return this;
+    }
+
+    /// <summary>
+    /// Use OpenRouter as the LLM provider — a thin convenience over the OpenAI-compatible
+    /// provider with OpenRouter's base URL and recommended attribution headers.
+    /// </summary>
+    /// <param name="apiKey">OpenRouter API key.</param>
+    /// <param name="model">Model name (e.g., "anthropic/claude-sonnet-4.5").</param>
+    /// <param name="referer">Optional HTTP-Referer for OpenRouter app attribution.</param>
+    /// <param name="title">Optional X-Title for OpenRouter app attribution.</param>
+    public NaturalQueryBuilder UseOpenRouterProvider(string apiKey, string model, string? referer = null, string? title = null)
+    {
+        _services.AddSingleton<ILlmProvider>(sp =>
+        {
+            var httpClient = OpenRouterDefaults.CreateHttpClient(referer, title);
+            var options = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value;
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<OpenAiProvider>>();
+            return new OpenAiProvider(httpClient, apiKey, model, options.MaxTokens, options.Temperature, logger);
+        });
+        return this;
+    }
+
     /// <summary>Use a custom LLM provider implementation.</summary>
     public NaturalQueryBuilder UseLlmProvider<T>() where T : class, ILlmProvider
     {
@@ -109,7 +182,8 @@ public class NaturalQueryBuilder
         {
             var client = sp.GetRequiredService<IAmazonAthena>();
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<AthenaQueryExecutor>>();
-            return new AthenaQueryExecutor(client, database, workgroup, outputLocation, logger, timeoutSeconds);
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new AthenaQueryExecutor(client, database, workgroup, outputLocation, logger, timeoutSeconds, maxRows);
         });
         return this;
     }
@@ -128,7 +202,8 @@ public class NaturalQueryBuilder
         _services.AddSingleton<IQueryExecutor>(sp =>
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PostgresQueryExecutor>>();
-            return new PostgresQueryExecutor(connectionString, logger, timeoutSeconds, wrapInTransaction);
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new PostgresQueryExecutor(connectionString, logger, timeoutSeconds, wrapInTransaction, maxRows);
         });
         return this;
     }
@@ -146,7 +221,8 @@ public class NaturalQueryBuilder
         _services.AddSingleton<IQueryExecutor>(sp =>
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SqlServerQueryExecutor>>();
-            return new SqlServerQueryExecutor(connectionString, logger, timeoutSeconds, wrapInTransaction);
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new SqlServerQueryExecutor(connectionString, logger, timeoutSeconds, wrapInTransaction, maxRows);
         });
         return this;
     }
@@ -161,7 +237,8 @@ public class NaturalQueryBuilder
         _services.AddSingleton<IQueryExecutor>(sp =>
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SqliteQueryExecutor>>();
-            return new SqliteQueryExecutor(connectionString, logger, timeoutSeconds);
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new SqliteQueryExecutor(connectionString, logger, timeoutSeconds, maxRows);
         });
         return this;
     }
@@ -177,7 +254,8 @@ public class NaturalQueryBuilder
         _services.AddSingleton<IQueryExecutor>(sp =>
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CsvQueryExecutor>>();
-            return new CsvQueryExecutor(filePath, logger, tableName);
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new CsvQueryExecutor(filePath, logger, tableName, maxRows);
         });
         return this;
     }
@@ -193,7 +271,27 @@ public class NaturalQueryBuilder
         _services.AddSingleton<IQueryExecutor>(sp =>
         {
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CsvQueryExecutor>>();
-            return new CsvQueryExecutor(csvStream, logger, tableName);
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new CsvQueryExecutor(csvStream, logger, tableName, maxRows);
+        });
+        return this;
+    }
+
+    /// <summary>
+    /// Use MySQL / MariaDB as the query executor.
+    /// </summary>
+    /// <param name="connectionString">MySQL connection string.</param>
+    /// <param name="timeoutSeconds">Command timeout in seconds. Default: 30.</param>
+    /// <param name="wrapInTransaction">
+    /// When true, wraps every query in a transaction rolled back at the end. Default: false.
+    /// </param>
+    public NaturalQueryBuilder UseMySqlExecutor(string connectionString, int timeoutSeconds = 30, bool wrapInTransaction = false)
+    {
+        _services.AddSingleton<IQueryExecutor>(sp =>
+        {
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MySqlQueryExecutor>>();
+            var maxRows = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value.MaxResultRows;
+            return new MySqlQueryExecutor(connectionString, logger, timeoutSeconds, wrapInTransaction, maxRows);
         });
         return this;
     }
@@ -239,6 +337,39 @@ public class NaturalQueryBuilder
     public NaturalQueryBuilder UseRateLimiter<T>() where T : class, IRateLimiter
     {
         _services.AddSingleton<IRateLimiter, T>();
+        return this;
+    }
+
+    // ── Auditing ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Register an audit sink instance. The engine writes exactly one audit record
+    /// per processed question (success or failure); sink failures never fail requests.
+    /// </summary>
+    public NaturalQueryBuilder UseAuditSink(IAuditSink sink)
+    {
+        _services.AddSingleton(sink);
+        return this;
+    }
+
+    /// <summary>Register an audit sink implementation type.</summary>
+    public NaturalQueryBuilder UseAuditSink<T>() where T : class, IAuditSink
+    {
+        _services.AddSingleton<IAuditSink, T>();
+        return this;
+    }
+
+    /// <summary>Register an audit sink from a service-provider factory.</summary>
+    public NaturalQueryBuilder UseAuditSink(Func<IServiceProvider, IAuditSink> factory)
+    {
+        _services.AddSingleton(factory);
+        return this;
+    }
+
+    /// <summary>Register an inline audit sink using a callback.</summary>
+    public NaturalQueryBuilder UseAuditSink(Func<AuditRecord, CancellationToken, Task> writer)
+    {
+        _services.AddSingleton<IAuditSink>(new DelegateAuditSink(writer));
         return this;
     }
 
@@ -314,6 +445,55 @@ public class NaturalQueryBuilder
         return this;
     }
 
+    /// <summary>
+    /// Use MySQL / MariaDB schema discovery (reads from information_schema).
+    /// </summary>
+    /// <param name="connectionString">MySQL connection string.</param>
+    public NaturalQueryBuilder UseMySqlSchemaDiscovery(string connectionString)
+    {
+        _services.AddSingleton<ISchemaDiscovery>(sp =>
+        {
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MySqlSchemaDiscovery>>();
+            return new MySqlSchemaDiscovery(connectionString, logger);
+        });
+        return this;
+    }
+
+    // ── Semantic Cache ──────────────────────────────────────────
+
+    /// <summary>
+    /// Enable the opt-in semantic cache. Requires an IEmbeddingProvider to be
+    /// registered (UseOpenAiEmbeddings / UseBedrockEmbeddings, or a custom one).
+    /// </summary>
+    public NaturalQueryBuilder UseSemanticCache()
+    {
+        _services.AddSingleton<ISemanticQueryCache>(sp =>
+        {
+            var embeddings = sp.GetRequiredService<IEmbeddingProvider>();
+            var options = sp.GetRequiredService<IOptions<NaturalQueryOptions>>().Value;
+            return new SemanticQueryCache(embeddings, options.SemanticCacheSimilarityThreshold, options.CacheTtlMinutes);
+        });
+        return this;
+    }
+
+    /// <summary>Use OpenAI embeddings for the semantic cache.</summary>
+    public NaturalQueryBuilder UseOpenAiEmbeddings(string apiKey, string model = "text-embedding-3-small")
+    {
+        _services.AddSingleton<IEmbeddingProvider>(_ => new OpenAiEmbeddingProvider(new HttpClient(), apiKey, model));
+        return this;
+    }
+
+    /// <summary>Use an Amazon Bedrock embedding model for the semantic cache.</summary>
+    public NaturalQueryBuilder UseBedrockEmbeddings(string modelId = "amazon.titan-embed-text-v2:0")
+    {
+        _services.AddSingleton<IEmbeddingProvider>(sp =>
+        {
+            var client = sp.GetRequiredService<Amazon.BedrockRuntime.IAmazonBedrockRuntime>();
+            return new BedrockEmbeddingProvider(client, modelId);
+        });
+        return this;
+    }
+
     // ── Cost Estimation ─────────────────────────────────────────
 
     /// <summary>Use a custom query cost estimator.</summary>
@@ -324,6 +504,17 @@ public class NaturalQueryBuilder
     }
 
     // ── Internal helpers ────────────────────────────────────────
+
+    private class DelegateAuditSink : IAuditSink
+    {
+        private readonly Func<AuditRecord, CancellationToken, Task> _writer;
+
+        public DelegateAuditSink(Func<AuditRecord, CancellationToken, Task> writer) =>
+            _writer = writer;
+
+        public Task WriteAsync(AuditRecord record, CancellationToken ct = default) =>
+            _writer(record, ct);
+    }
 
     private class DelegateErrorHandler : IErrorHandler
     {

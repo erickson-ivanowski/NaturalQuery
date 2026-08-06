@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using NaturalQuery.Export;
 using NaturalQuery.Models;
 
 namespace NaturalQuery.Extensions;
@@ -74,6 +75,42 @@ public static class QueryResultExtensions
         };
 
         return JsonSerializer.Serialize(export, options);
+    }
+
+    /// <summary>
+    /// Exports the query result data to an Excel (.xlsx) file, alongside the
+    /// existing CSV/JSON exports. Table data exports all columns; chart data
+    /// exports Label/Value columns.
+    /// </summary>
+    public static byte[] ToExcel(this QueryResult result)
+    {
+        var (headers, rows) = BuildTable(result);
+        return MinimalXlsxWriter.Write(headers, rows);
+    }
+
+    /// <summary>Exports the query result to an Excel (.xlsx) stream.</summary>
+    public static Stream ToExcelStream(this QueryResult result) => new MemoryStream(result.ToExcel());
+
+    private static (List<string> Headers, List<IReadOnlyList<string>> Rows) BuildTable(QueryResult result)
+    {
+        if (result.TableData?.Count > 0)
+        {
+            var columns = result.TableData.SelectMany(r => r.Keys).Distinct().ToList();
+            var rows = result.TableData
+                .Select(row => (IReadOnlyList<string>)columns.Select(c => row.TryGetValue(c, out var v) ? v : "").ToList())
+                .ToList();
+            return (columns, rows);
+        }
+
+        if (result.ChartData?.Count > 0)
+        {
+            var rows = result.ChartData
+                .Select(p => (IReadOnlyList<string>)new List<string> { p.Label, p.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) })
+                .ToList();
+            return (new List<string> { "Label", "Value" }, rows);
+        }
+
+        return (new List<string>(), new List<IReadOnlyList<string>>());
     }
 
     private static string EscapeCsvField(string field)

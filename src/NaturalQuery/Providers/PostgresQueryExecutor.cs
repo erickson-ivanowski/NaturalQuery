@@ -13,6 +13,7 @@ public class PostgresQueryExecutor : IQueryExecutor
     private readonly string _connectionString;
     private readonly int _timeoutSeconds;
     private readonly bool _wrapInTransaction;
+    private readonly int _maxResultRows;
     private readonly ILogger<PostgresQueryExecutor> _logger;
 
     /// <summary>
@@ -30,12 +31,14 @@ public class PostgresQueryExecutor : IQueryExecutor
         string connectionString,
         ILogger<PostgresQueryExecutor> logger,
         int timeoutSeconds = 30,
-        bool wrapInTransaction = false)
+        bool wrapInTransaction = false,
+        int maxResultRows = 0)
     {
         _connectionString = connectionString;
         _logger = logger;
         _timeoutSeconds = timeoutSeconds;
         _wrapInTransaction = wrapInTransaction;
+        _maxResultRows = maxResultRows;
     }
 
     /// <inheritdoc />
@@ -69,6 +72,9 @@ public class PostgresQueryExecutor : IQueryExecutor
                 {
                     results.Add(new DataPoint(label, value));
                 }
+
+                if (_maxResultRows > 0 && results.Count > _maxResultRows)
+                    break;
             }
 
             _logger.LogInformation("[Postgres] Chart query returned {Count} data points", results.Count);
@@ -111,6 +117,9 @@ public class PostgresQueryExecutor : IQueryExecutor
                     row[reader.GetName(i)] = reader.GetValue(i)?.ToString() ?? "";
                 }
                 results.Add(row);
+
+                if (_maxResultRows > 0 && results.Count > _maxResultRows)
+                    break;
             }
 
             _logger.LogInformation("[Postgres] Table query returned {Count} rows", results.Count);

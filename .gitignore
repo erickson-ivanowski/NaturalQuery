@@ -5,3 +5,8 @@ obj/
 .vs/
 *.nupkg
 TestResults/
+
+# Spec Kit / Superpowers bridge working files
+specs/
+.specify/
+.claude/

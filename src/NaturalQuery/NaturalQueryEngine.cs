@@ -4,11 +4,14 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using NaturalQuery.Auditing;
 using NaturalQuery.Caching;
+using NaturalQuery.Masking;
 using NaturalQuery.Diagnostics;
 using NaturalQuery.Models;
 using NaturalQuery.Providers;
 using NaturalQuery.RateLimiting;
+using NaturalQuery.Security;
 using NaturalQuery.Validation;
 
 namespace NaturalQuery;
@@ -27,6 +30,21 @@ public class NaturalQueryEngine : INaturalQueryEngine
     private readonly IQueryCache? _cache;
     private readonly IRateLimiter? _rateLimiter;
     private readonly IErrorHandler? _errorHandler;
+    private readonly IAuditSink? _auditSink;
+    private readonly Caching.ISemanticQueryCache? _semanticCache;
+    private readonly Diagnostics.IQueryCostEstimator? _costEstimator;
+    private readonly PromptInjectionScreener _injectionScreener;
+
+    /// <summary>
+    /// Bounded, TTL-evicted store backing AskPagedAsync — a capture is reused for
+    /// a limited window so paging never triggers extra AI calls, but the store
+    /// cannot grow without bound across the process lifetime (defense against
+    /// unbounded memory growth under high question diversity).
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (QueryResult Result, DateTime ExpiresAtUtc)> _pageCaptures = new();
+    private const int PageCaptureSoftCap = 5_000;
+    private static readonly TimeSpan PageCaptureTtl = TimeSpan.FromMinutes(10);
+    private long _lastPageCaptureSweepTicks;
 
     /// <summary>
     /// Initializes the NaturalQuery engine with all dependencies.
@@ -39,7 +57,10 @@ public class NaturalQueryEngine : INaturalQueryEngine
         ILogger<NaturalQueryEngine> logger,
         IQueryCache? cache = null,
         IRateLimiter? rateLimiter = null,
-        IErrorHandler? errorHandler = null)
+        IErrorHandler? errorHandler = null,
+        IAuditSink? auditSink = null,
+        Caching.ISemanticQueryCache? semanticCache = null,
+        Diagnostics.IQueryCostEstimator? costEstimator = null)
     {
         _llmProvider = llmProvider;
         _queryExecutor = queryExecutor;
@@ -48,6 +69,10 @@ public class NaturalQueryEngine : INaturalQueryEngine
         _cache = cache;
         _rateLimiter = rateLimiter;
         _errorHandler = errorHandler;
+        _auditSink = auditSink;
+        _semanticCache = semanticCache;
+        _costEstimator = costEstimator;
+        _injectionScreener = new PromptInjectionScreener(_options.InjectionPatterns);
     }
 
     /// <inheritdoc />
@@ -55,15 +80,110 @@ public class NaturalQueryEngine : INaturalQueryEngine
     {
         using var activity = NaturalQueryDiagnostics.StartAsk(question, tenantId);
         var stopwatch = Stopwatch.StartNew();
+        var correlationId = GenerateCorrelationId();
+
+        // Empty string is treated as "not provided" (consistent with null)
+        if (tenantId is { Length: 0 })
+            tenantId = null;
+
+        // Audit tracking — one record per processed question, success or failure (FR-018)
+        var auditOutcome = "llm_error";
+        string? auditSql = null;
+        var auditTokens = 0;
+        var auditTruncated = false;
+        Exception? failure = null;
 
         try
         {
+            // Tenant identifier policy — untrusted input, validated before ANY use (FR-006)
+            var tenantIdError = TenantIdValidator.Validate(tenantId, _options.TenantIdPattern);
+            if (tenantIdError != null)
+            {
+                auditOutcome = "validation_rejected";
+                var error = new NaturalQueryError
+                {
+                    Question = question,
+                    ErrorType = "validation",
+                    Message = tenantIdError,
+                    TenantId = tenantId,
+                    ElapsedMs = stopwatch.ElapsedMilliseconds
+                };
+                await ReportErrorAsync(error, ct);
+                throw new InvalidOperationException($"Invalid tenant identifier: {tenantIdError}");
+            }
+
+            // Conversation-history screening — caller-supplied turns pass the same SQL
+            // safety rules before inclusion in AI context, unconditionally (FR-013)
+            if (context != null)
+            {
+                foreach (var turn in context.Turns)
+                {
+                    var turnError = SqlValidator.Validate(turn.Sql);
+                    if (turnError != null)
+                    {
+                        auditOutcome = "validation_rejected";
+                        var error = new NaturalQueryError
+                        {
+                            Question = question,
+                            ErrorType = "validation",
+                            Message = $"Conversation history contains a disallowed query: {turnError}",
+                            TenantId = tenantId,
+                            ElapsedMs = stopwatch.ElapsedMilliseconds
+                        };
+                        await ReportErrorAsync(error, ct);
+                        throw new InvalidOperationException("Conversation history contains a disallowed query.");
+                    }
+                }
+            }
+
+            // Prompt-injection screening over question and history turns (FR-014)
+            var injectionFlagged = false;
+            if (_options.InjectionScreening != InjectionScreeningMode.Off)
+            {
+                var suspicious = _injectionScreener.IsSuspicious(question, out var matchedPattern);
+                if (!suspicious && context != null)
+                {
+                    foreach (var turn in context.Turns)
+                    {
+                        if (_injectionScreener.IsSuspicious(turn.Question, out matchedPattern))
+                        {
+                            suspicious = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (suspicious)
+                {
+                    if (_options.InjectionScreening == InjectionScreeningMode.Block)
+                    {
+                        auditOutcome = "injection_flagged";
+                        var error = new NaturalQueryError
+                        {
+                            Question = question,
+                            ErrorType = "injection",
+                            Message = $"Question flagged by prompt-injection screening (pattern: {matchedPattern}).",
+                            TenantId = tenantId,
+                            ElapsedMs = stopwatch.ElapsedMilliseconds
+                        };
+                        await ReportErrorAsync(error, ct);
+                        throw new InvalidOperationException("Question was refused by prompt-injection screening.");
+                    }
+
+                    _logger.LogWarning(
+                        "NaturalQuery prompt-injection screening flagged a question (pattern: {Pattern}). Proceeding in Warn mode.",
+                        matchedPattern);
+                    injectionFlagged = true;
+                }
+            }
+
             // Rate limiting
             if (_rateLimiter != null)
             {
                 var allowed = await _rateLimiter.IsAllowedAsync(tenantId ?? "global", ct);
                 if (!allowed)
                 {
+                    auditOutcome = "rate_limited";
                     var error = new NaturalQueryError
                     {
                         Question = question,
@@ -81,11 +201,33 @@ public class NaturalQueryEngine : INaturalQueryEngine
             if (_cache != null)
             {
                 var cached = await _cache.GetAsync(question, tenantId, ct);
+                Diagnostics.NaturalQueryMetrics.RecordCache(hit: cached != null, tenantId);
                 if (cached != null)
                 {
                     _logger.LogInformation("NaturalQuery cache hit for question: {Question}", question[..Math.Min(50, question.Length)]);
                     NaturalQueryDiagnostics.RecordCacheHit(activity);
+                    cached.InjectionFlagged = injectionFlagged;
+                    auditOutcome = "success";
+                    auditSql = cached.Sql;
+                    auditTokens = cached.TokensUsed;
+                    auditTruncated = cached.Truncated;
                     return cached;
+                }
+            }
+
+            // Semantic cache check (opt-in) — strictly tenant-scoped
+            if (_semanticCache != null)
+            {
+                var semanticHit = await _semanticCache.GetSimilarAsync(question, tenantId, ct);
+                if (semanticHit != null)
+                {
+                    _logger.LogInformation("NaturalQuery semantic cache hit for question: {Question}", question[..Math.Min(50, question.Length)]);
+                    semanticHit.InjectionFlagged = injectionFlagged;
+                    auditOutcome = "success";
+                    auditSql = semanticHit.Sql;
+                    auditTokens = semanticHit.TokensUsed;
+                    auditTruncated = semanticHit.Truncated;
+                    return semanticHit;
                 }
             }
 
@@ -97,10 +239,14 @@ public class NaturalQueryEngine : INaturalQueryEngine
             if (!string.IsNullOrEmpty(_options.TenantIdPlaceholder) && !string.IsNullOrEmpty(tenantId))
                 sql = sql.Replace(_options.TenantIdPlaceholder, tenantId);
 
+            auditSql = sql;
+            auditTokens = result.TokensUsed;
+
             // Validate SQL
-            var validationError = SqlValidator.Validate(sql, _options.TenantIdColumn, tenantId, _options.ForbiddenSqlKeywords);
+            var validationError = ValidateGeneratedSql(sql, tenantId);
             if (validationError != null)
             {
+                auditOutcome = "validation_rejected";
                 var error = new NaturalQueryError
                 {
                     Question = question,
@@ -124,6 +270,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
             }
 
             // Execute with optional retry
+            auditOutcome = "execution_error";
             var maxRetries = Math.Clamp(_options.MaxRetries, 0, 3);
             Exception? lastExecutionError = null;
 
@@ -153,8 +300,11 @@ public class NaturalQueryEngine : INaturalQueryEngine
                         if (!string.IsNullOrEmpty(_options.TenantIdPlaceholder) && !string.IsNullOrEmpty(tenantId))
                             sql = sql.Replace(_options.TenantIdPlaceholder, tenantId);
 
-                        // Validate the new SQL
-                        var retryValidationError = SqlValidator.Validate(sql, _options.TenantIdColumn, tenantId, _options.ForbiddenSqlKeywords);
+                        auditSql = sql;
+                        auditTokens = result.TokensUsed;
+
+                        // Validate the new SQL — identical safety rules on the repair path (FR-004)
+                        var retryValidationError = ValidateGeneratedSql(sql, tenantId);
                         if (retryValidationError != null)
                         {
                             lastExecutionError = new InvalidOperationException($"Invalid query: {retryValidationError}");
@@ -163,14 +313,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
                     }
 
                     using var execActivity = NaturalQueryDiagnostics.StartQueryExecution(sql);
-                    if (result.ChartType == ChartType.Table)
-                    {
-                        result.TableData = await _queryExecutor.ExecuteTableQueryAsync(sql, ct);
-                    }
-                    else
-                    {
-                        result.ChartData = await _queryExecutor.ExecuteChartQueryAsync(sql, ct);
-                    }
+                    await ExecuteWithGovernanceAsync(result, sql, ct);
 
                     // Execution succeeded, break out of retry loop
                     lastExecutionError = null;
@@ -186,8 +329,16 @@ public class NaturalQueryEngine : INaturalQueryEngine
             if (lastExecutionError != null)
                 throw lastExecutionError;
 
+            // Sensitive-column masking before caching/return (FR-019)
+            if (_options.Tables.Count > 0)
+                SensitiveDataMasker.Mask(result, _options.Tables);
+
             stopwatch.Stop();
             result.ElapsedMs = stopwatch.ElapsedMilliseconds;
+            result.CorrelationId = correlationId;
+            result.InjectionFlagged = injectionFlagged;
+            auditOutcome = "success";
+            auditTruncated = result.Truncated;
 
             NaturalQueryDiagnostics.RecordResult(activity, result.TokensUsed, result.ChartType, result.ElapsedMs);
 
@@ -197,14 +348,20 @@ public class NaturalQueryEngine : INaturalQueryEngine
             // Cache store
             if (_cache != null)
                 await _cache.SetAsync(question, tenantId, result, ct);
+            if (_semanticCache != null)
+                await _semanticCache.SetAsync(question, tenantId, result, ct);
+
+            // Capture for pagination (AskPagedAsync slices this without an extra AI call)
+            StorePageCapture(PageCaptureKey(question, tenantId), result);
 
             // Add to conversation context
             context?.AddTurn(question, result.Sql);
 
             return result;
         }
-        catch (Exception ex) when (ex is not InvalidOperationException || _errorHandler != null)
+        catch (Exception ex)
         {
+            failure = ex;
             NaturalQueryDiagnostics.RecordError(activity, ex);
 
             if (_errorHandler != null && ex is not InvalidOperationException)
@@ -223,6 +380,48 @@ public class NaturalQueryEngine : INaturalQueryEngine
 
             throw;
         }
+        finally
+        {
+            if (_auditSink != null)
+            {
+                if (failure is TimeoutException)
+                    auditOutcome = "timeout";
+                else if (auditOutcome == "llm_error" && failure is InvalidOperationException ioe && IsSafetyValidationMessage(ioe.Message))
+                    auditOutcome = "validation_rejected"; // generated SQL rejected during parse-time validation
+
+                await EmitAuditAsync(new AuditRecord
+                {
+                    Question = question,
+                    Sql = auditSql,
+                    TenantId = tenantId,
+                    Outcome = auditOutcome,
+                    DurationMs = stopwatch.ElapsedMilliseconds,
+                    TokensUsed = auditTokens,
+                    TimestampUtc = DateTime.UtcNow,
+                    CorrelationId = correlationId,
+                    Truncated = auditTruncated
+                });
+            }
+
+            Diagnostics.NaturalQueryMetrics.RecordQuery(auditOutcome, tenantId, stopwatch.ElapsedMilliseconds, auditTokens);
+        }
+    }
+
+    /// <summary>
+    /// Writes the audit record; a sink failure never fails the user's request —
+    /// it is logged server-side (FR-018). Uses CancellationToken.None so a
+    /// caller-cancelled request still audits.
+    /// </summary>
+    private async Task EmitAuditAsync(AuditRecord record)
+    {
+        try
+        {
+            await _auditSink!.WriteAsync(record, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "NaturalQuery audit sink failed for correlation {CorrelationId}", record.CorrelationId);
+        }
     }
 
     /// <inheritdoc />
@@ -237,6 +436,148 @@ public class NaturalQueryEngine : INaturalQueryEngine
         var response = await _llmProvider.GenerateAsync(systemPrompt, userPrompt, ct);
 
         return ParseResponse(response);
+    }
+
+    /// <summary>
+    /// Interprets and executes a question, returning a bounded slice of the result.
+    /// The full result is captured on first request (identical to a normal AskAsync
+    /// call); subsequent pages for the same question/tenant slice the captured
+    /// result without an additional AI call (FR-031).
+    /// </summary>
+    public async Task<QueryResult> AskPagedAsync(string question, int page, int pageSize, string? tenantId = null, ConversationContext? context = null, CancellationToken ct = default)
+    {
+        var key = PageCaptureKey(question, tenantId);
+
+        QueryResult captured;
+        if (_pageCaptures.TryGetValue(key, out var entry) && entry.ExpiresAtUtc > DateTime.UtcNow)
+        {
+            captured = entry.Result;
+        }
+        else
+        {
+            captured = await AskAsync(question, tenantId, context, ct);
+            StorePageCapture(key, captured);
+        }
+
+        var page1Based = Math.Max(1, page);
+        var size = Math.Max(1, pageSize);
+        var skip = (page1Based - 1) * size;
+
+        var sliced = new QueryResult
+        {
+            Sql = captured.Sql,
+            ChartType = captured.ChartType,
+            Title = captured.Title,
+            Description = captured.Description,
+            Suggestions = captured.Suggestions,
+            TokensUsed = captured.TokensUsed,
+            ElapsedMs = captured.ElapsedMs,
+            Truncated = captured.Truncated,
+            CorrelationId = captured.CorrelationId,
+            InjectionFlagged = captured.InjectionFlagged,
+            TableData = captured.TableData?.Skip(skip).Take(size).ToList(),
+            ChartData = captured.ChartData?.Skip(skip).Take(size).ToList()
+        };
+
+        return sliced;
+    }
+
+    /// <summary>
+    /// Interprets a question and returns the generated, validated query and its
+    /// estimated cost (when an IQueryCostEstimator is registered) without
+    /// executing it (FR-032).
+    /// </summary>
+    public async Task<QueryPreview> PreviewAsync(string question, string? tenantId = null, ConversationContext? context = null, CancellationToken ct = default)
+    {
+        var interpreted = await InterpretAsync(question, tenantId, context, ct);
+
+        var sql = interpreted.Sql;
+        if (!string.IsNullOrEmpty(_options.TenantIdPlaceholder) && !string.IsNullOrEmpty(tenantId))
+            sql = sql.Replace(_options.TenantIdPlaceholder, tenantId);
+
+        var validationError = ValidateGeneratedSql(sql, tenantId);
+        if (validationError != null)
+            throw new InvalidOperationException($"Invalid query: {validationError}");
+
+        QueryCostEstimate? cost = null;
+        if (_costEstimator != null)
+        {
+            try
+            {
+                cost = await _costEstimator.EstimateAsync(sql, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "NaturalQuery cost estimation failed; preview will omit EstimatedCost");
+            }
+        }
+
+        return new QueryPreview
+        {
+            Sql = sql,
+            ChartType = interpreted.ChartType,
+            Title = interpreted.Title,
+            Description = interpreted.Description,
+            EstimatedCost = cost,
+            CorrelationId = GenerateCorrelationId()
+        };
+    }
+
+    /// <summary>
+    /// Executes a previously previewed, caller-approved query. Re-applies every
+    /// safety rule (hardened validation, tenant filter, masking, caps) at
+    /// execution time so a stale approval — e.g. after a config change — is
+    /// rejected rather than silently trusted (FR-032).
+    /// </summary>
+    public async Task<QueryResult> ExecuteApprovedAsync(string sql, string? tenantId = null, CancellationToken ct = default)
+    {
+        var validationError = ValidateGeneratedSql(sql, tenantId);
+        if (validationError != null)
+            throw new InvalidOperationException($"Invalid query: {validationError}");
+
+        var chartType = SqlLooksLikeChartShape(sql) ? Models.ChartType.Bar : Models.ChartType.Table;
+        var result = new QueryResult { Sql = sql, ChartType = chartType };
+
+        await ExecuteWithGovernanceAsync(result, sql, ct);
+
+        if (_options.Tables.Count > 0)
+            SensitiveDataMasker.Mask(result, _options.Tables);
+
+        result.CorrelationId = GenerateCorrelationId();
+        return result;
+    }
+
+    private static bool SqlLooksLikeChartShape(string sql) =>
+        sql.Contains("AS value", StringComparison.OrdinalIgnoreCase);
+
+    private static string PageCaptureKey(string question, string? tenantId) =>
+        $"{tenantId ?? "global"}::{question.Trim().ToLowerInvariant()}";
+
+    /// <summary>
+    /// Stores a page capture with a TTL and opportunistically sweeps expired
+    /// entries once the store exceeds a soft cap, keeping memory bounded under
+    /// unbounded question diversity without needing a background timer.
+    /// </summary>
+    private void StorePageCapture(string key, QueryResult result)
+    {
+        var now = DateTime.UtcNow;
+        _pageCaptures[key] = (result, now + PageCaptureTtl);
+
+        if (_pageCaptures.Count <= PageCaptureSoftCap)
+            return;
+
+        var nowTicks = now.Ticks;
+        var lastSweep = Interlocked.Read(ref _lastPageCaptureSweepTicks);
+        if (nowTicks - lastSweep < TimeSpan.TicksPerSecond)
+            return;
+        if (Interlocked.CompareExchange(ref _lastPageCaptureSweepTicks, nowTicks, lastSweep) != lastSweep)
+            return;
+
+        foreach (var pair in _pageCaptures)
+        {
+            if (pair.Value.ExpiresAtUtc <= now)
+                _pageCaptures.TryRemove(pair.Key, out _);
+        }
     }
 
     /// <inheritdoc />
@@ -344,19 +685,10 @@ public class NaturalQueryEngine : INaturalQueryEngine
         if (string.IsNullOrWhiteSpace(sql))
             throw new InvalidOperationException("LLM response is missing the 'sql' field.");
 
-        // Validate SQL structure
-        var sqlUpper = sql.Trim().ToUpperInvariant();
-        if (!sqlUpper.StartsWith("SELECT") && !sqlUpper.StartsWith("WITH"))
-            throw new InvalidOperationException("Only SELECT queries are allowed.");
-
-        // Remove string literals for false-positive prevention
-        var sqlNoStrings = Regex.Replace(sqlUpper, "'[^']*'", "''");
-        var forbidden = new[] { "DELETE ", "UPDATE ", " INSERT INTO", "DROP ", "ALTER ", "CREATE ", "TRUNCATE ", "GRANT ", "REVOKE " };
-        foreach (var word in forbidden)
-        {
-            if (sqlNoStrings.Contains(word))
-                throw new InvalidOperationException($"Forbidden SQL keyword: {word.Trim()}");
-        }
+        // Validate SQL safety with the same hardened pipeline used everywhere else (FR-004)
+        var safetyError = Validation.SqlValidator.Validate(sql);
+        if (safetyError != null)
+            throw new InvalidOperationException(safetyError);
 
         // Chart type
         var chartType = root.TryGetProperty("chartType", out var ctProp) ? ctProp.GetString() ?? "table" : "table";
@@ -496,6 +828,90 @@ public class NaturalQueryEngine : INaturalQueryEngine
         {
             _logger.LogWarning(ex, "Error handler failed");
         }
+    }
+
+    /// <summary>
+    /// Executes the query under resource governance: a linked cancellation token
+    /// enforces QueryTimeoutSeconds (FR-017), and results are truncated at
+    /// MaxResultRows with the Truncated marker set (FR-016). The marker is only set
+    /// when the cap was the binding constraint — a query whose own LIMIT produced
+    /// fewer (or exactly cap) rows is not marked.
+    /// </summary>
+    private async Task ExecuteWithGovernanceAsync(QueryResult result, string sql, CancellationToken ct)
+    {
+        var timeoutSeconds = _options.QueryTimeoutSeconds;
+        using var timeoutCts = timeoutSeconds > 0
+            ? CancellationTokenSource.CreateLinkedTokenSource(ct)
+            : null;
+        timeoutCts?.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+        var execToken = timeoutCts?.Token ?? ct;
+
+        try
+        {
+            if (result.ChartType == ChartType.Table)
+            {
+                result.TableData = await _queryExecutor.ExecuteTableQueryAsync(sql, execToken);
+            }
+            else
+            {
+                result.ChartData = await _queryExecutor.ExecuteChartQueryAsync(sql, execToken);
+            }
+        }
+        catch (OperationCanceledException) when (timeoutCts is { IsCancellationRequested: true } && !ct.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Query execution exceeded the {timeoutSeconds}s timeout.");
+        }
+
+        var cap = _options.MaxResultRows;
+        if (cap > 0)
+        {
+            if (result.TableData is { } table && table.Count > cap)
+            {
+                result.TableData = table.Take(cap).ToList();
+                result.Truncated = true;
+            }
+
+            if (result.ChartData is { } chart && chart.Count > cap)
+            {
+                result.ChartData = chart.Take(cap).ToList();
+                result.Truncated = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Applies every SQL safety rule used at any route to execution: hardened keyword
+    /// validation plus structural tenant-filter verification (FR-004, FR-007).
+    /// </summary>
+    private string? ValidateGeneratedSql(string sql, string? tenantId)
+    {
+        var validationError = SqlValidator.Validate(sql, _options.TenantIdColumn, tenantId, _options.ForbiddenSqlKeywords);
+        if (validationError != null)
+            return validationError;
+
+        // Structural tenant-filter verification — no-op when tenant column unconfigured (FR-008)
+        if (!string.IsNullOrEmpty(_options.TenantIdColumn) && !string.IsNullOrEmpty(tenantId) &&
+            !TenantFilterVerifier.HasTenantFilter(sql, _options.TenantIdColumn, tenantId))
+        {
+            return $"Query must apply an equality filter on tenant column '{_options.TenantIdColumn}'.";
+        }
+
+        return null;
+    }
+
+    /// <summary>Matches the error strings owned by SqlValidator (safety rejections).</summary>
+    private static bool IsSafetyValidationMessage(string message) =>
+        message.Contains("Forbidden SQL keyword", StringComparison.Ordinal) ||
+        message.Contains("Only SELECT queries", StringComparison.Ordinal) ||
+        message.Contains("Multiple SQL statements", StringComparison.Ordinal) ||
+        message.Contains("SQL query cannot be empty", StringComparison.Ordinal);
+
+    private static string GenerateCorrelationId()
+    {
+        var traceId = Activity.Current?.TraceId.ToString();
+        return string.IsNullOrEmpty(traceId) || traceId == "00000000000000000000000000000000"
+            ? Guid.NewGuid().ToString("N")
+            : traceId;
     }
 
     private static string ClassifyError(Exception ex) => ex switch

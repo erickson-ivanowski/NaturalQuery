@@ -46,4 +46,31 @@ public interface INaturalQueryEngine
     /// <param name="ct">Cancellation token.</param>
     /// <returns>List of suggested natural language questions.</returns>
     Task<List<string>> SuggestQuestionsAsync(int count = 5, CancellationToken ct = default);
+
+    /// <summary>
+    /// Interprets and executes a question, returning a bounded slice of the result
+    /// (captured on first request; subsequent pages are sliced without an extra AI call).
+    /// </summary>
+    /// <param name="question">Natural language question.</param>
+    /// <param name="page">1-based page number.</param>
+    /// <param name="pageSize">Rows per page.</param>
+    /// <param name="tenantId">Optional tenant ID for multi-tenant filtering.</param>
+    /// <param name="context">Optional conversation context for follow-up questions.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<QueryResult> AskPagedAsync(string question, int page, int pageSize, string? tenantId = null, ConversationContext? context = null, CancellationToken ct = default)
+        => throw new NotImplementedException("AskPagedAsync is not implemented by this INaturalQueryEngine implementation.");
+
+    /// <summary>
+    /// Interprets a question and returns the generated query and its estimated
+    /// cost (when supported) without executing it.
+    /// </summary>
+    Task<QueryPreview> PreviewAsync(string question, string? tenantId = null, ConversationContext? context = null, CancellationToken ct = default)
+        => throw new NotImplementedException("PreviewAsync is not implemented by this INaturalQueryEngine implementation.");
+
+    /// <summary>
+    /// Executes a previously previewed (and caller-approved) query. Re-applies all
+    /// safety validation at execution time — a stale approval is rejected.
+    /// </summary>
+    Task<QueryResult> ExecuteApprovedAsync(string sql, string? tenantId = null, CancellationToken ct = default)
+        => throw new NotImplementedException("ExecuteApprovedAsync is not implemented by this INaturalQueryEngine implementation.");
 }
