@@ -9,6 +9,7 @@ using NaturalQuery.Diagnostics;
 using NaturalQuery.Models;
 using NaturalQuery.Providers;
 using NaturalQuery.RateLimiting;
+using NaturalQuery.Security;
 using NaturalQuery.Validation;
 
 namespace NaturalQuery;
@@ -27,6 +28,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
     private readonly IQueryCache? _cache;
     private readonly IRateLimiter? _rateLimiter;
     private readonly IErrorHandler? _errorHandler;
+    private readonly PromptInjectionScreener _injectionScreener;
 
     /// <summary>
     /// Initializes the NaturalQuery engine with all dependencies.
@@ -48,6 +50,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
         _cache = cache;
         _rateLimiter = rateLimiter;
         _errorHandler = errorHandler;
+        _injectionScreener = new PromptInjectionScreener(_options.InjectionPatterns);
     }
 
     /// <inheritdoc />
@@ -79,6 +82,69 @@ public class NaturalQueryEngine : INaturalQueryEngine
                 throw new InvalidOperationException($"Invalid tenant identifier: {tenantIdError}");
             }
 
+            // Conversation-history screening — caller-supplied turns pass the same SQL
+            // safety rules before inclusion in AI context, unconditionally (FR-013)
+            if (context != null)
+            {
+                foreach (var turn in context.Turns)
+                {
+                    var turnError = SqlValidator.Validate(turn.Sql);
+                    if (turnError != null)
+                    {
+                        var error = new NaturalQueryError
+                        {
+                            Question = question,
+                            ErrorType = "validation",
+                            Message = $"Conversation history contains a disallowed query: {turnError}",
+                            TenantId = tenantId,
+                            ElapsedMs = stopwatch.ElapsedMilliseconds
+                        };
+                        await ReportErrorAsync(error, ct);
+                        throw new InvalidOperationException("Conversation history contains a disallowed query.");
+                    }
+                }
+            }
+
+            // Prompt-injection screening over question and history turns (FR-014)
+            var injectionFlagged = false;
+            if (_options.InjectionScreening != InjectionScreeningMode.Off)
+            {
+                var suspicious = _injectionScreener.IsSuspicious(question, out var matchedPattern);
+                if (!suspicious && context != null)
+                {
+                    foreach (var turn in context.Turns)
+                    {
+                        if (_injectionScreener.IsSuspicious(turn.Question, out matchedPattern))
+                        {
+                            suspicious = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (suspicious)
+                {
+                    if (_options.InjectionScreening == InjectionScreeningMode.Block)
+                    {
+                        var error = new NaturalQueryError
+                        {
+                            Question = question,
+                            ErrorType = "injection",
+                            Message = $"Question flagged by prompt-injection screening (pattern: {matchedPattern}).",
+                            TenantId = tenantId,
+                            ElapsedMs = stopwatch.ElapsedMilliseconds
+                        };
+                        await ReportErrorAsync(error, ct);
+                        throw new InvalidOperationException("Question was refused by prompt-injection screening.");
+                    }
+
+                    _logger.LogWarning(
+                        "NaturalQuery prompt-injection screening flagged a question (pattern: {Pattern}). Proceeding in Warn mode.",
+                        matchedPattern);
+                    injectionFlagged = true;
+                }
+            }
+
             // Rate limiting
             if (_rateLimiter != null)
             {
@@ -106,6 +172,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
                 {
                     _logger.LogInformation("NaturalQuery cache hit for question: {Question}", question[..Math.Min(50, question.Length)]);
                     NaturalQueryDiagnostics.RecordCacheHit(activity);
+                    cached.InjectionFlagged = injectionFlagged;
                     return cached;
                 }
             }
@@ -210,6 +277,7 @@ public class NaturalQueryEngine : INaturalQueryEngine
             stopwatch.Stop();
             result.ElapsedMs = stopwatch.ElapsedMilliseconds;
             result.CorrelationId = correlationId;
+            result.InjectionFlagged = injectionFlagged;
 
             NaturalQueryDiagnostics.RecordResult(activity, result.TokensUsed, result.ChartType, result.ElapsedMs);
 

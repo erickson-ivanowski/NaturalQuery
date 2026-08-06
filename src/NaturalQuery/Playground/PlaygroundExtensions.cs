@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace NaturalQuery.Playground;
 
@@ -19,13 +22,31 @@ public static class PlaygroundExtensions
     /// <param name="endpoints">The endpoint route builder.</param>
     /// <param name="path">URL path for the playground. Default: "/nq-playground".</param>
     /// <param name="apiPath">The NaturalQuery API endpoint path. Default: "/ask".</param>
+    /// <param name="allowInProduction">
+    /// When false (default), the playground refuses to serve (404) outside the
+    /// Development environment and logs a warning explaining why (FR-012).
+    /// </param>
     public static IEndpointRouteBuilder MapNaturalQueryPlayground(
         this IEndpointRouteBuilder endpoints,
         string path = "/nq-playground",
-        string apiPath = "/ask")
+        string apiPath = "/ask",
+        bool allowInProduction = false)
     {
         endpoints.MapGet(path, (HttpContext context) =>
         {
+            // Production guard: development-only unless explicitly opted in
+            var environment = context.RequestServices.GetService<IHostEnvironment>();
+            if (!allowInProduction && environment != null && !environment.IsDevelopment())
+            {
+                context.RequestServices.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("NaturalQuery.Playground")
+                    .LogWarning(
+                        "NaturalQuery playground refused to serve in environment '{Environment}'. " +
+                        "It is development-only; pass allowInProduction: true to MapNaturalQueryPlayground to opt in.",
+                        environment.EnvironmentName);
+                return Results.NotFound();
+            }
+
             var assembly = typeof(PlaygroundExtensions).Assembly;
             var resourceName = "NaturalQuery.Playground.playground.html";
 

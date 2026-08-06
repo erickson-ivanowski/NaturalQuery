@@ -90,17 +90,17 @@
 
 ### Tests for User Story 3 (write FIRST, must FAIL)
 
-- [ ] T017 [P] [US3] Write EndpointProtectionTests: question > MaxQuestionLength rejected before AI call, history > MaxContextTurns rejected, backend failure returns `{ error, correlationId }` with zero internal detail, RequireAuthorization/AuthorizationPolicy refuse unauthenticated requests, default (no options) behavior unchanged, in tests/NaturalQuery.Tests/EndpointProtectionTests.cs
-- [ ] T018 [P] [US3] Write PlaygroundGuardTests: production without opt-in → 404 + logged warning; Development → serves; `allowInProduction: true` → serves, in tests/NaturalQuery.Tests/PlaygroundGuardTests.cs
-- [ ] T019 [P] [US3] Write PromptInjectionScreenerTests: instruction-override patterns (EN + PT/ES equivalents) detected, Warn flags without refusing, Block refuses, Off disables, legitimate questions resembling patterns not penalized in Warn, operator-extended patterns honored, dangerous SQL in conversation turns rejected (FR-013), in tests/NaturalQuery.Tests/PromptInjectionScreenerTests.cs
+- [x] T017 [P] [US3] Write EndpointProtectionTests: question > MaxQuestionLength rejected before AI call, history > MaxContextTurns rejected, backend failure returns `{ error, correlationId }` with zero internal detail, RequireAuthorization/AuthorizationPolicy refuse unauthenticated requests, default (no options) behavior unchanged, in tests/NaturalQuery.Tests/EndpointProtectionTests.cs
+- [x] T018 [P] [US3] Write PlaygroundGuardTests: production without opt-in → 404 + logged warning; Development → serves; `allowInProduction: true` → serves, in tests/NaturalQuery.Tests/PlaygroundGuardTests.cs
+- [x] T019 [P] [US3] Write PromptInjectionScreenerTests: instruction-override patterns (EN + PT/ES equivalents) detected, Warn flags without refusing, Block refuses, Off disables, legitimate questions resembling patterns not penalized in Warn, operator-extended patterns honored, dangerous SQL in conversation turns rejected (FR-013), in tests/NaturalQuery.Tests/PromptInjectionScreenerTests.cs
 
 ### Implementation for User Story 3
 
-- [ ] T020 [P] [US3] Create NaturalQueryEndpointOptions (RequireAuthorization, AuthorizationPolicy, MaxQuestionLength = 2000, MaxContextTurns = 20) in src/NaturalQuery/Extensions/NaturalQueryEndpointOptions.cs
-- [ ] T021 [US3] Add MapNaturalQuery additive overload accepting NaturalQueryEndpointOptions: enforce size limits pre-engine, shape all errors to `{ error, correlationId }` with full detail logged server-side keyed by correlation ID, delegate to ASP.NET `RequireAuthorization()`/named policy, in src/NaturalQuery/Extensions/EndpointRouteBuilderExtensions.cs (depends on T020)
-- [ ] T022 [P] [US3] Add playground production guard: refuse (404 + startup warning) unless IHostEnvironment.IsDevelopment() or `allowInProduction: true`, in src/NaturalQuery/Playground/PlaygroundExtensions.cs
-- [ ] T023 [P] [US3] Implement PromptInjectionScreener: built-in + operator-extensible regex patterns over question and each conversation turn, in src/NaturalQuery/Security/PromptInjectionScreener.cs
-- [ ] T024 [US3] Wire screening into engine: Warn → log + set QueryResult.InjectionFlagged; Block → refuse; screen caller-supplied history turns with hardened SqlValidator before inclusion in AI context, in src/NaturalQuery/NaturalQueryEngine.cs (depends on T023)
+- [x] T020 [P] [US3] Create NaturalQueryEndpointOptions (RequireAuthorization, AuthorizationPolicy, MaxQuestionLength = 2000, MaxContextTurns = 20) in src/NaturalQuery/Extensions/NaturalQueryEndpointOptions.cs
+- [x] T021 [US3] Add MapNaturalQuery additive overload accepting NaturalQueryEndpointOptions: enforce size limits pre-engine, shape all errors to `{ error, correlationId }` with full detail logged server-side keyed by correlation ID, delegate to ASP.NET `RequireAuthorization()`/named policy, in src/NaturalQuery/Extensions/EndpointRouteBuilderExtensions.cs (depends on T020)
+- [x] T022 [P] [US3] Add playground production guard: refuse (404 + startup warning) unless IHostEnvironment.IsDevelopment() or `allowInProduction: true`, in src/NaturalQuery/Playground/PlaygroundExtensions.cs
+- [x] T023 [P] [US3] Implement PromptInjectionScreener: built-in + operator-extensible regex patterns over question and each conversation turn, in src/NaturalQuery/Security/PromptInjectionScreener.cs
+- [x] T024 [US3] Wire screening into engine: Warn → log + set QueryResult.InjectionFlagged; Block → refuse; screen caller-supplied history turns with hardened SqlValidator before inclusion in AI context, in src/NaturalQuery/NaturalQueryEngine.cs (depends on T023)
 
 **Checkpoint**: SC-005 scenarios green; endpoints with no new options behave as before.
 
